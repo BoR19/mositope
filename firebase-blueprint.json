@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "Plato": {
+      "title": "Plato",
+      "description": "Un producto del menú.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nombre": { "type": "string" },
+        "precioBs": { "type": "number" },
+        "disponible": { "type": "boolean" },
+        "categoria": { "type": "string" }
+      },
+      "required": ["id", "nombre", "precioBs", "disponible", "categoria"]
+    },
+    "Pedido": {
+      "title": "Pedido",
+      "description": "Una comanda de mesa.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "mesaId": { "type": "number" },
+        "status": { "type": "string", "enum": ["pendiente", "en-preparacion", "servido", "por-pagar"] },
+        "total": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "mesaId", "status", "total", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/menu/{platoId}": {
+      "schema": "Plato",
+      "description": "Colección de productos del menú."
+    },
+    "/pedidos/{pedidoId}": {
+      "schema": "Pedido",
+      "description": "Colección de pedidos activos."
+    }
+  }
+}
