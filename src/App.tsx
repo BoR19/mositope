@@ -409,44 +409,33 @@ export default function App() {
             </div>
           </div>
 
-          <nav className="hidden md:flex items-center gap-1 bg-[#292524] p-1.5 rounded-[16px] border border-[#3a3632]">
-            <button
-              onClick={() => setActiveTab('menu')}
-              className={`px-4 py-2 rounded-[12px] text-[13px] font-semibold transition-all flex items-center gap-2 ${
-                activeTab === 'menu' ? 'bg-[#ff7a00] text-white shadow-lg' : 'text-[#a8a29e] hover:text-[#f5efe6]'
-              }`}
-            >
-              <Utensils className="w-4 h-4" /> Menú & Pedidos
-            </button>
-            <button
-              onClick={() => setActiveTab('tables')}
-              className={`px-4 py-2 rounded-[12px] text-[13px] font-semibold transition-all flex items-center gap-2 ${
-                activeTab === 'tables' ? 'bg-[#ff7a00] text-white shadow-lg' : 'text-[#a8a29e] hover:text-[#f5efe6]'
-              }`}
-            >
-              <QrCode className="w-4 h-4" /> Mesas & QR
-            </button>
-            <button
-              onClick={() => setActiveTab('kitchen')}
-              className={`px-4 py-2 rounded-[12px] text-[13px] font-semibold transition-all flex items-center gap-2 relative ${
-                activeTab === 'kitchen' ? 'bg-[#ff7a00] text-white shadow-lg' : 'text-[#a8a29e] hover:text-[#f5efe6]'
-              }`}
-            >
-              <ChefHat className="w-4 h-4" /> Comanda Cocina
-              {orders.filter(o => o.status !== 'servido').length > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 text-black rounded-full text-[10px] font-bold flex items-center justify-center">
-                  {orders.filter(o => o.status !== 'servido').length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('admin')}
-              className={`px-4 py-2 rounded-[12px] text-[13px] font-semibold transition-all flex items-center gap-2 ${
-                activeTab === 'admin' ? 'bg-[#ff7a00] text-white shadow-lg' : 'text-[#a8a29e] hover:text-[#f5efe6]'
-              }`}
-            >
-              <Layers className="w-4 h-4" /> Administración
-            </button>
+          <nav className="fixed bottom-0 left-0 right-0 bg-[#1c1917] border-t border-[#3a3632] flex md:static md:bg-transparent md:border-t-0 md:p-1.5 md:rounded-[16px] md:border md:border-[#3a3632] md:bg-[#292524] z-50">
+            {[
+              { id: 'menu', label: 'Menú', icon: Utensils },
+              { id: 'tables', label: 'Mesas', icon: QrCode },
+              { id: 'kitchen', label: 'Cocina', icon: ChefHat },
+              { id: 'admin', label: 'Admin', icon: Layers },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex-1 flex flex-col items-center justify-center py-3 md:flex-row md:px-4 md:py-2 md:rounded-[12px] md:gap-2 text-[10px] md:text-[13px] font-semibold transition-all ${
+                    isActive ? 'text-[#ff7a00] md:bg-[#ff7a00] md:text-white md:shadow-lg' : 'text-[#a8a29e] hover:text-[#f5efe6]'
+                  }`}
+                >
+                  <Icon className="w-5 h-5 md:w-4 md:h-4 mb-1 md:mb-0" />
+                  {tab.label}
+                  {tab.id === 'kitchen' && orders.filter(o => o.status !== 'servido').length > 0 && (
+                    <span className="absolute top-1 right-1 md:top-auto md:right-auto md:relative md:ml-2 w-4 h-4 md:w-5 md:h-5 bg-amber-500 text-black rounded-full text-[9px] font-bold flex items-center justify-center">
+                      {orders.filter(o => o.status !== 'servido').length}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </nav>
 
           <div className="flex items-center gap-3">
