@@ -25,6 +25,7 @@ export interface Table {
     items: (CartItem | OrderItem)[];
     total: number;
     time: string;
+    status?: string;
   } | null;
 }
 
@@ -34,6 +35,7 @@ export interface OrderItem {
   precioBs: number;
   qty: number;
   categoria?: string;
+  isAddition?: boolean;
 }
 
 export interface Order {
@@ -42,8 +44,13 @@ export interface Order {
   tableName: string;
   items: OrderItem[];
   total: number;
-  status: 'pendiente' | 'en-preparacion' | 'servido';
+  status: 'pendiente' | 'en-preparacion' | 'servido' | 'por-pagar' | 'pagado' | 'cancelado';
   time: string;
+  createdAt?: number;
+  hasAddition?: boolean;
+  additionTime?: string;
+  paidAt?: string;
+  paymentMethod?: 'QR' | 'EFECTIVO';
 }
 
 export interface WaiterCall {

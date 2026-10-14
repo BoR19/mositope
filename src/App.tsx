@@ -8,12 +8,13 @@ import { collection, onSnapshot, addDoc, updateDoc, doc, setDoc } from 'firebase
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 
 import { MENU_CATEGORIAS, INITIAL_MENU, INITIAL_TABLES } from './data/menuData.ts';
-import { MenuItem, CartItem, Table, Order, WaiterCall, NotificationState } from './types/index.ts';
+import { MenuItem, CartItem, Table, Order, OrderItem, WaiterCall, NotificationState } from './types/index.ts';
 import { ProductCard } from './components/ProductCard.tsx';
 import { CartModal } from './components/CartModal.tsx';
 import { FloatingCartBar } from './components/FloatingCartBar.tsx';
 import { MobileDock } from './components/MobileDock.tsx';
 import { QrModal } from './components/QrModal.tsx';
+import { ActiveOrderBanner } from './components/ActiveOrderBanner.tsx';
 
 export default function App() {
   // Authentication & Core Data States
@@ -50,13 +51,14 @@ export default function App() {
       const liveOrders = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Order));
       setOrders(liveOrders);
 
-      // Auto-update table occupied status based on active orders
+      // Auto-update table occupied status based on active orders (until order is paid or cancelled)
       setTables(prev => prev.map(t => {
-        const tableActiveOrder = liveOrders.find(o => o.tableId === t.id && o.status !== 'servido');
-        if (tableActiveOrder && t.status === 'free') {
-          return { ...t, status: 'occupied', currentOrder: tableActiveOrder };
+        const tableActiveOrder = liveOrders.find(o => o.tableId === t.id && o.status !== 'pagado' && o.status !== 'cancelado');
+        if (tableActiveOrder) {
+          const status = tableActiveOrder.status === 'por-pagar' ? 'por-pagar' : 'occupied';
+          return { ...t, status, currentOrder: tableActiveOrder };
         }
-        return t;
+        return { ...t, status: 'free', currentOrder: null };
       }));
     }, (error) => {
       console.warn("Pedidos snapshot listener error:", error);
@@ -97,6 +99,15 @@ export default function App() {
     }
   }, [tables]);
 
+  // Active Order for Current Selected Table
+  const activeOrderForCurrentTable = useMemo(() => {
+    return orders.find(
+      o => o.tableId === Number(currentTableId) && 
+      o.status !== 'pagado' && 
+      o.status !== 'cancelado'
+    ) || null;
+  }, [orders, currentTableId]);
+
   // Cart Calculations & Handlers
   const cartTotal = useMemo(() => {
     return cart.reduce((sum, item) => sum + (item.precioBs * item.qty), 0);
@@ -132,28 +143,87 @@ export default function App() {
     showToast('Producto eliminado del carrito');
   };
 
-  // Place Order to Firestore
+  // Place Order or Send Addition to Firestore (prevents duplicate orders per table until paid)
   const placeOrder = async () => {
     if (cart.length === 0) return;
     const tableObj = tables.find(t => t.id === Number(currentTableId)) || tables[0];
-    const newOrder = {
-      tableId: tableObj.id,
-      tableName: tableObj.name,
-      items: [...cart],
-      total: cartTotal,
-      status: 'pendiente',
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
+    
+    // Check if table already has an active order in progress
+    const existingOrder = orders.find(
+      o => o.tableId === tableObj.id && 
+      o.status !== 'pagado' && 
+      o.status !== 'cancelado'
+    );
 
+    if (existingOrder) {
+      // ADICIÓN: Merge seamlessly into existing order so kitchen comanda is unified without duplicate cards!
+      try {
+        const additionItems: OrderItem[] = cart.map(item => ({
+          id: item.id,
+          nombre: item.nombre,
+          precioBs: item.precioBs,
+          qty: item.qty,
+          categoria: item.categoria,
+          isAddition: true
+        }));
+
+        const updatedItems = [...existingOrder.items, ...additionItems];
+        const updatedTotal = Number((existingOrder.total + cartTotal).toFixed(2));
+
+        await updateDoc(doc(db, 'pedidos', existingOrder.id), {
+          items: updatedItems,
+          total: updatedTotal,
+          hasAddition: true,
+          additionTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        });
+
+        setCart([]);
+        setCustomerModalOpen(false);
+        showToast(`¡Adición enviada a cocina para ${tableObj.name}! 🍲`);
+      } catch (error) {
+        console.error("Error al enviar adición:", error);
+        showToast("Hubo un error al enviar la adición. Intenta de nuevo.", "error");
+      }
+    } else {
+      // NUEVA COMANDA PARA MESA LIBRE
+      const newOrder = {
+        tableId: tableObj.id,
+        tableName: tableObj.name,
+        items: cart.map(item => ({
+          id: item.id,
+          nombre: item.nombre,
+          precioBs: item.precioBs,
+          qty: item.qty,
+          categoria: item.categoria
+        })),
+        total: Number(cartTotal.toFixed(2)),
+        status: 'pendiente',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        createdAt: Date.now()
+      };
+
+      try {
+        await addDoc(collection(db, 'pedidos'), newOrder);
+        setCart([]);
+        setCustomerModalOpen(false);
+        showToast(`¡Pedido de ${tableObj.name} enviado a cocina con éxito! 🍲`);
+      } catch (error) {
+        console.error("Error al enviar pedido:", error);
+        showToast("Hubo un error al enviar el pedido. Intenta de nuevo.", "error");
+      }
+    }
+  };
+
+  // Cancel order (allowed before kitchen starts cooking)
+  const cancelOrder = async (orderId: string) => {
     try {
-      await addDoc(collection(db, 'pedidos'), newOrder);
-      setTables(prev => prev.map(t => t.id === tableObj.id ? { ...t, status: 'occupied' } : t));
-      setCart([]);
-      setCustomerModalOpen(false);
-      showToast(`¡Pedido de ${tableObj.name} enviado a cocina con éxito! 🍲`);
-    } catch (error) {
-      console.error("Error al enviar pedido:", error);
-      showToast("Hubo un error al enviar el pedido. Intenta de nuevo.", "error");
+      await updateDoc(doc(db, 'pedidos', orderId), {
+        status: 'cancelado'
+      });
+      showToast('Comanda cancelada con éxito. La mesa ha quedado libre.');
+    } catch (e) {
+      console.error("Error al cancelar comanda:", e);
+      showToast("Error al cancelar la comanda", "error");
     }
   };
 
@@ -189,7 +259,7 @@ export default function App() {
     showToast(`Llamada de mozo enviada para ${table.name}. ¡Un mozo viene en camino!`);
   };
 
-  const requestBill = (table: Table) => {
+  const requestBill = async (table: Table) => {
     const newCall: WaiterCall = {
       id: `CALL-${Date.now()}`,
       tableId: table.id,
@@ -198,15 +268,79 @@ export default function App() {
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     setWaiterCalls(prev => [newCall, ...prev]);
+
+    // Update order status to 'por-pagar' in Firestore if active order exists
+    const activeOrder = orders.find(
+      o => o.tableId === table.id && 
+      o.status !== 'pagado' && 
+      o.status !== 'cancelado'
+    );
+    if (activeOrder && activeOrder.status !== 'por-pagar') {
+      try {
+        await updateDoc(doc(db, 'pedidos', activeOrder.id), { status: 'por-pagar' });
+      } catch (e) {
+        console.warn("Error setting status por-pagar:", e);
+      }
+    }
+
     setModalMode('bill');
     setCustomerModalOpen(true);
   };
 
-  const handlePayment = (method: 'QR' | 'EFECTIVO') => {
-    setTables(prev => prev.map(t => t.id === currentTableId ? { ...t, status: 'free', currentOrder: null } : t));
-    setCustomerModalOpen(false);
-    setCashAmount('');
-    showToast(`Pago con ${method} confirmado. ¡Muchas gracias por su preferencia! ✨`);
+  // Payment Confirmation & Table Liberation in Firestore
+  const handlePayment = async (method: 'QR' | 'EFECTIVO') => {
+    const tableObj = tables.find(t => t.id === Number(currentTableId)) || tables[0];
+    const activeOrder = orders.find(
+      o => o.tableId === tableObj.id && 
+      o.status !== 'pagado' && 
+      o.status !== 'cancelado'
+    );
+
+    if (activeOrder) {
+      try {
+        await updateDoc(doc(db, 'pedidos', activeOrder.id), {
+          status: 'pagado',
+          paidAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          paymentMethod: method
+        });
+        setCustomerModalOpen(false);
+        setCashAmount('');
+        showToast(`¡Pago con ${method} confirmado! Mesa #${tableObj.id} liberada. ¡Muchas gracias! ✨`);
+      } catch (e) {
+        console.error("Error al registrar pago:", e);
+        showToast("Error al registrar pago", "error");
+      }
+    } else {
+      setCustomerModalOpen(false);
+      setCashAmount('');
+      showToast(`Pago procesado. ¡Muchas gracias por su preferencia! ✨`);
+    }
+  };
+
+  // Staff function to collect & liberate table immediately
+  const liberateTable = async (tableId: number) => {
+    const orderToPay = orders.find(
+      o => o.tableId === tableId && 
+      o.status !== 'pagado' && 
+      o.status !== 'cancelado'
+    );
+
+    if (orderToPay) {
+      try {
+        await updateDoc(doc(db, 'pedidos', orderToPay.id), {
+          status: 'pagado',
+          paidAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          paymentMethod: 'EFECTIVO'
+        });
+        showToast(`Mesa #${tableId} cobrada y liberada con éxito.`);
+      } catch (e) {
+        console.error("Error al liberar mesa:", e);
+        showToast("Error al liberar mesa", "error");
+      }
+    } else {
+      setTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'free', currentOrder: null } : t));
+      showToast(`Mesa #${tableId} está libre.`);
+    }
   };
 
   // Robust QR Printing with Iframe Fallback
@@ -347,7 +481,7 @@ export default function App() {
             ].map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
-              const activeCount = orders.filter(o => o.status !== 'servido').length;
+              const activeCount = orders.filter(o => o.status !== 'pagado' && o.status !== 'cancelado' && o.status !== 'servido').length;
               return (
                 <button
                   key={tab.id}
@@ -443,8 +577,26 @@ export default function App() {
               </div>
             </div>
 
+            {/* Active Table Order Banner: Real-time Comanda Tracker */}
+            {activeOrderForCurrentTable && (
+              <ActiveOrderBanner
+                order={activeOrderForCurrentTable}
+                tableName={tables.find(t => t.id === Number(currentTableId))?.name || `Mesa #${currentTableId}`}
+                onOpenAdditions={() => {
+                  showToast('Selecciona platos o bebidas abajo para adicionarlos a tu mesa');
+                  const menuSec = document.getElementById('menu-list-section');
+                  if (menuSec) menuSec.scrollIntoView({ behavior: 'smooth' });
+                }}
+                onOpenBill={() => {
+                  setModalMode('bill');
+                  setCustomerModalOpen(true);
+                }}
+                onCancelOrder={cancelOrder}
+              />
+            )}
+
             {/* Categories Carousel */}
-            <div className="flex items-center gap-2 overflow-x-auto w-full pb-2 no-scrollbar">
+            <div id="menu-list-section" className="flex items-center gap-2 overflow-x-auto w-full pb-2 no-scrollbar scroll-mt-24">
               {categoriesWithAll.map(category => (
                 <button
                   key={category}
@@ -513,7 +665,7 @@ export default function App() {
                   Gestión de Mesas y Códigos QR
                 </h2>
                 <p className="text-sm text-[#a8a29e]">
-                  Visualiza o imprime los códigos QR para cada mesa del restaurante.
+                  Visualiza el consumo en tiempo real, cobra o imprime los códigos QR para cada mesa.
                 </p>
               </div>
             </div>
@@ -536,6 +688,19 @@ export default function App() {
                     </div>
                     <h3 className="text-[18px] font-serif font-bold text-[#f5efe6] mt-2">{table.name}</h3>
                     <p className="text-xs text-[#a8a29e] mt-1">{table.seats} comensales</p>
+
+                    {table.currentOrder && (
+                      <div className="mt-3 p-3 rounded-xl bg-[#1c1917] border border-[#3a3632] space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-[#a8a29e]">Consumo en curso:</span>
+                          <span className="text-[#ff7a00] font-black text-sm">Bs. {table.currentOrder.total.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-[11px] text-[#a8a29e]">
+                          <span>{table.currentOrder.items.length} ítems</span>
+                          <span>Hora: {table.currentOrder.time}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
                   <div className="space-y-2">
@@ -545,12 +710,12 @@ export default function App() {
                     >
                       <QrCode className="w-4 h-4" /> Ver / Imprimir QR
                     </button>
-                    {table.status === 'por-pagar' && (
+                    {table.status !== 'free' && (
                       <button
-                        onClick={() => setTables(prev => prev.map(t => t.id === table.id ? { ...t, status: 'free', currentOrder: null } : t))}
-                        className="w-full py-2.5 px-3 rounded-[12px] bg-emerald-600 hover:bg-emerald-700 text-[13px] font-semibold text-white transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                        onClick={() => liberateTable(table.id)}
+                        className="w-full py-2.5 px-3 rounded-[12px] bg-emerald-600 hover:bg-emerald-700 text-[13px] font-semibold text-white transition-colors flex items-center justify-center gap-2 cursor-pointer shadow"
                       >
-                        <CheckCheck className="w-4 h-4" /> Marcar como Pagada
+                        <CheckCheck className="w-4 h-4" /> Cobrar y Liberar Mesa
                       </button>
                     )}
                   </div>
@@ -588,15 +753,15 @@ export default function App() {
                       Comanda de Cocina (KDS)
                     </h2>
                     <p className="text-sm text-[#a8a29e]">
-                      Pedidos en tiempo real sincronizados desde las mesas.
+                      Pedidos en tiempo real sincronizados desde las mesas. Sin mesas duplicadas.
                     </p>
                   </div>
                   <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/20">
-                    {orders.filter(o => o.status !== 'servido').length} pendientes
+                    {orders.filter(o => o.status !== 'pagado' && o.status !== 'cancelado' && o.status !== 'servido').length} en cocina
                   </span>
                 </div>
 
-                {orders.length === 0 ? (
+                {orders.filter(o => o.status !== 'pagado' && o.status !== 'cancelado').length === 0 ? (
                   <div className="text-center py-16 bg-[#292524] border border-[#3a3632] rounded-[24px] text-[#a8a29e]">
                     <ChefHat className="w-12 h-12 mx-auto mb-3 opacity-40 text-[#ff7a00]" />
                     <p className="text-base font-bold text-[#f5efe6]">No hay comandas activas</p>
@@ -604,40 +769,67 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {orders.map(order => (
+                    {orders
+                      .filter(o => o.status !== 'pagado' && o.status !== 'cancelado')
+                      .map(order => (
                       <div key={order.id} className="bg-[#292524] border border-[#3a3632] rounded-[20px] p-6 space-y-4 flex flex-col justify-between shadow-lg">
                         <div className="space-y-3">
                           <div className="flex justify-between items-center">
                             <span className="text-sm font-bold text-[#ff7a00]">{order.id}</span>
-                            <span className="text-xs text-[#a8a29e] flex items-center gap-1">
-                              <Clock className="w-3.5 h-3.5" /> {order.time}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              {order.hasAddition && (
+                                <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-bold animate-pulse">
+                                  🔥 Adición {order.additionTime}
+                                </span>
+                              )}
+                              <span className="text-xs text-[#a8a29e] flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5" /> {order.time}
+                              </span>
+                            </div>
                           </div>
-                          <h4 className="text-base font-serif font-bold text-[#f5efe6]">{order.tableName}</h4>
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-base font-serif font-bold text-[#f5efe6]">{order.tableName}</h4>
+                            <span className="text-xs font-extrabold text-[#ff7a00]">Bs. {order.total.toFixed(2)}</span>
+                          </div>
                           <div className="border-t border-[#3a3632] pt-3 space-y-2">
                             {order.items.map((item, i) => (
-                              <div key={i} className="flex justify-between text-sm">
-                                <span className="text-[#f5efe6] font-medium">{item.qty}x {item.nombre}</span>
+                              <div key={i} className="flex justify-between items-center text-sm">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[#f5efe6] font-medium">{item.qty}x {item.nombre}</span>
+                                  {item.isAddition && (
+                                    <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded font-bold">
+                                      Adición
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-xs text-[#a8a29e]">Bs. {(item.precioBs * item.qty).toFixed(2)}</span>
                               </div>
                             ))}
                           </div>
                         </div>
-                        <div className="pt-4 border-t border-[#3a3632] flex gap-2">
+                        <div className="pt-4 border-t border-[#3a3632] flex flex-wrap gap-2">
                           <button 
                             onClick={() => updateOrderStatus(order.id, 'en-preparacion')}
-                            className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                            className={`flex-1 py-2 px-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                               order.status === 'en-preparacion' ? 'bg-amber-600 text-white font-bold' : 'bg-[#1c1917] text-[#a8a29e]'
                             }`}
                           >
-                            En Proceso
+                            En Fogones
                           </button>
                           <button 
                             onClick={() => updateOrderStatus(order.id, 'servido')}
-                            className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                            className={`flex-1 py-2 px-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                               order.status === 'servido' ? 'bg-emerald-600 text-white font-bold' : 'bg-[#1c1917] text-[#a8a29e]'
                             }`}
                           >
                             Servido
+                          </button>
+                          <button 
+                            onClick={() => liberateTable(order.tableId)}
+                            className="py-2 px-2.5 rounded-xl text-xs font-semibold bg-[#3a3632] hover:bg-emerald-700 text-emerald-300 hover:text-white transition-colors cursor-pointer"
+                            title="Cobrar comanda y liberar mesa"
+                          >
+                            Cobrar
                           </button>
                         </div>
                       </div>
@@ -738,6 +930,7 @@ export default function App() {
         cartTotal={cartTotal}
         tables={tables}
         currentTableId={currentTableId}
+        activeOrder={activeOrderForCurrentTable}
         onTableChange={(id) => setCurrentTableId(id)}
         onUpdateQty={updateCartQty}
         onRemoveItem={removeFromCart}
@@ -746,6 +939,7 @@ export default function App() {
         cashAmount={cashAmount}
         setCashAmount={setCashAmount}
         onViewMenu={() => setActiveTab('menu')}
+        onSwitchToBill={() => setModalMode('bill')}
       />
 
       {/* Floating Mobile Cart Bar (Hides when Cart Modal is Open) */}

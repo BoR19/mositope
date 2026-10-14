@@ -20,7 +20,7 @@ export const MobileDock: React.FC<MobileDockProps> = ({
   isCartOpen,
 }) => {
   const totalCartCount = cart.reduce((s, i) => s + i.qty, 0);
-  const activeOrdersCount = orders.filter(o => o.status !== 'servido').length;
+  const activeOrdersCount = orders.filter(o => o.status !== 'pagado' && o.status !== 'cancelado' && o.status !== 'servido').length;
 
   const tabs = [
     { id: 'menu', label: 'Menú', icon: Utensils, isAction: false },
