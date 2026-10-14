@@ -15,10 +15,20 @@ import { FloatingCartBar } from './components/FloatingCartBar.tsx';
 import { MobileDock } from './components/MobileDock.tsx';
 import { QrModal } from './components/QrModal.tsx';
 import { ActiveOrderBanner } from './components/ActiveOrderBanner.tsx';
+import { StaffLoginView, StaffSession } from './components/StaffLoginView.tsx';
 
 export default function App() {
   // Authentication & Core Data States
   const [user, setUser] = useState<User | null>(null);
+  const [staffSession, setStaffSession] = useState<StaffSession | null>(() => {
+    try {
+      const saved = localStorage.getItem('elchuro_staff_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const isStaffAuthenticated = Boolean(user || staffSession);
   const [activeTab, setActiveTab] = useState<string>('menu'); 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -39,6 +49,20 @@ export default function App() {
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 3500);
+  };
+
+  // Staff Sign Out Handler
+  const handleLogout = async () => {
+    try {
+      if (user) {
+        await signOut(auth);
+      }
+    } catch (e) {
+      console.warn("Error al cerrar sesión de Firebase:", e);
+    }
+    localStorage.removeItem('elchuro_staff_session');
+    setStaffSession(null);
+    showToast('Sesión de personal cerrada.');
   };
 
   // Firebase Real-time Subscriptions
@@ -504,13 +528,17 @@ export default function App() {
 
           {/* Header Cart Button - Always visible, never cut off */}
           <div className="flex items-center gap-2 shrink-0">
-            {user && (
+            {isStaffAuthenticated && (
               <button 
-                onClick={() => signOut(auth)}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#292524] border border-[#3a3632] text-xs text-[#a8a29e] hover:text-white"
-                title="Cerrar sesión"
+                onClick={handleLogout}
+                className="flex items-center gap-1.5 px-3 py-1.5 sm:py-2 rounded-xl bg-[#292524] border border-[#3a3632] hover:border-red-500/40 text-xs text-[#a8a29e] hover:text-white transition-colors cursor-pointer"
+                title="Cerrar sesión de personal"
               >
-                <LogOut className="w-3.5 h-3.5" /> Salir
+                <LogOut className="w-3.5 h-3.5 text-[#ff7a00]" />
+                <span className="hidden sm:inline font-medium">
+                  {user?.displayName || staffSession?.name || 'Personal'}
+                </span>
+                <span className="sm:hidden text-[11px] font-semibold">Salir</span>
               </button>
             )}
             <button
@@ -726,22 +754,12 @@ export default function App() {
         )}
 
         {/* Kitchen KDS and Admin Protected Views */}
-        {(activeTab === 'kitchen' || activeTab === 'admin') && !user ? (
-          <div className="flex flex-col items-center justify-center min-h-[40vh] text-center space-y-4 bg-[#292524] border border-[#3a3632] rounded-[24px] p-8 max-w-md mx-auto">
-            <div className="w-16 h-16 rounded-2xl bg-[#ff7a00]/15 flex items-center justify-center text-[#ff7a00]">
-              <ChefHat className="w-8 h-8" />
-            </div>
-            <h2 className="text-xl font-bold text-[#f5efe6]">Acceso de Personal Requerido</h2>
-            <p className="text-sm text-[#a8a29e]">
-              Inicia sesión con tu cuenta de administrador o personal de cocina para gestionar comandas e inventario.
-            </p>
-            <button 
-              onClick={() => signInWithPopup(auth, googleProvider)}
-              className="px-6 py-3 rounded-xl bg-[#ff7a00] hover:bg-[#ff8c1a] text-white font-bold flex items-center gap-2 shadow-lg transition-transform active:scale-95 cursor-pointer"
-            >
-              <LogIn className="w-4 h-4" /> Iniciar Sesión con Google
-            </button>
-          </div>
+        {(activeTab === 'kitchen' || activeTab === 'admin') && !isStaffAuthenticated ? (
+          <StaffLoginView
+            onSuccess={(session) => setStaffSession(session)}
+            showToast={showToast}
+            requiredRole={activeTab === 'kitchen' ? 'Cocina (KDS)' : 'Administración'}
+          />
         ) : (
           <div className="animate-fadeIn">
             {/* Kitchen KDS */}
