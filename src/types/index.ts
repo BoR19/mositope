@@ -22,7 +22,7 @@ export interface Table {
   status: 'free' | 'occupied' | 'reserved' | 'por-pagar';
   currentOrder?: {
     id: string;
-    items: CartItem[];
+    items: (CartItem | OrderItem)[];
     total: number;
     time: string;
   } | null;

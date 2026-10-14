@@ -42,18 +42,24 @@ export default function App() {
 
   // Firebase Real-time Subscriptions
   useEffect(() => {
-    let unsubscribeOrders = () => {};
-
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      unsubscribeOrders();
-      if (currentUser) {
-        unsubscribeOrders = onSnapshot(collection(db, 'pedidos'), (snapshot) => {
-          setOrders(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Order)));
-        });
-      } else {
-        setOrders([]);
-      }
+    });
+
+    const unsubscribeOrders = onSnapshot(collection(db, 'pedidos'), (snapshot) => {
+      const liveOrders = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Order));
+      setOrders(liveOrders);
+
+      // Auto-update table occupied status based on active orders
+      setTables(prev => prev.map(t => {
+        const tableActiveOrder = liveOrders.find(o => o.tableId === t.id && o.status !== 'servido');
+        if (tableActiveOrder && t.status === 'free') {
+          return { ...t, status: 'occupied', currentOrder: tableActiveOrder };
+        }
+        return t;
+      }));
+    }, (error) => {
+      console.warn("Pedidos snapshot listener error:", error);
     });
 
     const unsubscribeMenu = onSnapshot(collection(db, 'menu'), async (snapshot) => {
