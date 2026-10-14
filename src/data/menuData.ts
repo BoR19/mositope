@@ -825,10 +825,10 @@ export const INITIAL_MENU: MenuItem[] = [
 
 export const INITIAL_TABLES: Table[] = [
   { id: 1, name: 'Mesa 1 - Terraza Principal', seats: 4, status: 'free', currentOrder: null },
-  { id: 2, name: 'Mesa 2 - Terraza Vista', seats: 2, status: 'occupied', currentOrder: { id: 'ORD-101', items: [{ ...INITIAL_MENU[0], qty: 2 }], total: 70, time: '12:40' } },
-  { id: 3, name: 'Mesa 3 - Salón Central', seats: 6, status: 'reserved', currentOrder: null },
+  { id: 2, name: 'Mesa 2 - Terraza Vista', seats: 2, status: 'free', currentOrder: null },
+  { id: 3, name: 'Mesa 3 - Salón Central', seats: 6, status: 'free', currentOrder: null },
   { id: 4, name: 'Mesa 4 - Salón Central', seats: 4, status: 'free', currentOrder: null },
-  { id: 5, name: 'Mesa 5 - VIP Bodega', seats: 8, status: 'occupied', currentOrder: { id: 'ORD-102', items: [{ ...INITIAL_MENU[2], qty: 2 }], total: 140, time: '13:05' } },
+  { id: 5, name: 'Mesa 5 - VIP Bodega', seats: 8, status: 'free', currentOrder: null },
   { id: 6, name: 'Mesa 6 - Patio Colonial', seats: 4, status: 'free', currentOrder: null },
   { id: 7, name: 'Mesa 7 - Terraza Lateral', seats: 4, status: 'free', currentOrder: null },
   { id: 8, name: 'Mesa 8 - Terraza Lateral', seats: 4, status: 'free', currentOrder: null },

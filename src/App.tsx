@@ -36,7 +36,19 @@ export default function App() {
   const [tables, setTables] = useState<Table[]>(INITIAL_TABLES);
   
   // UI & Interaction States
-  const [currentTableId, setCurrentTableId] = useState<number>(2);
+  // Initialize from ?mesa= query parameter if scanned, otherwise null (requiring table selection or QR scan)
+  const [currentTableId, setCurrentTableId] = useState<number | null>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const mesaParam = params.get('mesa');
+      if (mesaParam && !isNaN(Number(mesaParam))) {
+        return Number(mesaParam);
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  });
   const [customerModalOpen, setCustomerModalOpen] = useState<boolean>(false);
   const [modalMode, setModalMode] = useState<'cart' | 'bill'>('cart');
   const [cashAmount, setCashAmount] = useState<string>('');
@@ -125,6 +137,7 @@ export default function App() {
 
   // Active Order for Current Selected Table
   const activeOrderForCurrentTable = useMemo(() => {
+    if (currentTableId === null) return null;
     return orders.find(
       o => o.tableId === Number(currentTableId) && 
       o.status !== 'pagado' && 
@@ -170,7 +183,20 @@ export default function App() {
   // Place Order or Send Addition to Firestore (prevents duplicate orders per table until paid)
   const placeOrder = async () => {
     if (cart.length === 0) return;
-    const tableObj = tables.find(t => t.id === Number(currentTableId)) || tables[0];
+    
+    // Check if table is assigned
+    if (currentTableId === null) {
+      showToast("Por favor selecciona tu número de mesa para enviar el pedido.", "error");
+      setModalMode('cart');
+      setCustomerModalOpen(true);
+      return;
+    }
+
+    const tableObj = tables.find(t => t.id === Number(currentTableId));
+    if (!tableObj) {
+      showToast("Mesa no válida. Por favor selecciona tu mesa.", "error");
+      return;
+    }
     
     // Check if table already has an active order in progress
     const existingOrder = orders.find(
@@ -313,7 +339,17 @@ export default function App() {
 
   // Payment Confirmation & Table Liberation in Firestore
   const handlePayment = async (method: 'QR' | 'EFECTIVO') => {
-    const tableObj = tables.find(t => t.id === Number(currentTableId)) || tables[0];
+    if (currentTableId === null) {
+      setCustomerModalOpen(false);
+      showToast("Mesa no seleccionada.", "error");
+      return;
+    }
+    const tableObj = tables.find(t => t.id === Number(currentTableId));
+    if (!tableObj) {
+      setCustomerModalOpen(false);
+      showToast("Mesa no válida.", "error");
+      return;
+    }
     const activeOrder = orders.find(
       o => o.tableId === tableObj.id && 
       o.status !== 'pagado' && 
@@ -575,13 +611,21 @@ export default function App() {
                   Escanea el código QR de tu mesa, agrega tus platos al carrito y envíalos a cocina sin demoras.
                 </p>
                 <div className="pt-2 flex flex-wrap gap-2.5 items-center">
-                  <div className="flex items-center gap-2 bg-[#1c1917] border border-[#3a3632] rounded-xl px-3 py-2">
+                  <div className={`flex items-center gap-2 border rounded-xl px-3 py-2 transition-colors ${
+                    currentTableId === null ? 'bg-amber-950/40 border-amber-500/60' : 'bg-[#1c1917] border-[#3a3632]'
+                  }`}>
                     <span className="text-xs text-[#a8a29e]">Mesa:</span>
                     <select 
-                      value={currentTableId}
-                      onChange={(e) => setCurrentTableId(Number(e.target.value))}
+                      value={currentTableId ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value ? Number(e.target.value) : null;
+                        setCurrentTableId(val);
+                      }}
                       className="bg-transparent text-sm font-bold text-[#ff7a00] focus:outline-none cursor-pointer"
                     >
+                      <option value="" disabled className="bg-[#1c1917] text-stone-400">
+                        -- Seleccionar Mesa --
+                      </option>
                       {tables.map(t => (
                         <option key={t.id} value={t.id} className="bg-[#1c1917] text-white">
                           #{t.id} - {t.name}
@@ -590,13 +634,27 @@ export default function App() {
                     </select>
                   </div>
                   <button 
-                    onClick={() => callWaiter(tables.find(t => t.id === Number(currentTableId)) || tables[0])}
+                    onClick={() => {
+                      if (currentTableId === null) {
+                        showToast("Por favor selecciona tu mesa antes de llamar al mozo.", "error");
+                        return;
+                      }
+                      const table = tables.find(t => t.id === Number(currentTableId));
+                      if (table) callWaiter(table);
+                    }}
                     className="px-3.5 py-2 rounded-xl bg-[#3a3632] hover:bg-[#ff7a00] text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
                   >
                     <Bell className="w-3.5 h-3.5 text-[#ff7a00]" /> Llamar Mozo
                   </button>
                   <button 
-                    onClick={() => requestBill(tables.find(t => t.id === Number(currentTableId)) || tables[0])}
+                    onClick={() => {
+                      if (currentTableId === null) {
+                        showToast("Por favor selecciona tu mesa para pedir la cuenta.", "error");
+                        return;
+                      }
+                      const table = tables.find(t => t.id === Number(currentTableId));
+                      if (table) requestBill(table);
+                    }}
                     className="px-3.5 py-2 rounded-xl bg-[#3a3632] hover:bg-emerald-600 text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
                   >
                     <FileText className="w-3.5 h-3.5 text-emerald-400" /> Pedir Cuenta

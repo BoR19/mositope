@@ -9,7 +9,7 @@ interface CartModalProps {
   cart: CartItem[];
   cartTotal: number;
   tables: Table[];
-  currentTableId: number;
+  currentTableId: number | null;
   activeOrder?: Order | null;
   onTableChange: (tableId: number) => void;
   onUpdateQty: (id: string, delta: number) => void;
@@ -58,7 +58,7 @@ export const CartModal: React.FC<CartModalProps> = ({
 
   if (!isOpen) return null;
 
-  const currentTable = tables.find(t => t.id === Number(currentTableId)) || tables[0];
+  const currentTable = currentTableId !== null ? tables.find(t => t.id === Number(currentTableId)) || null : null;
   const isAdditionMode = Boolean(activeOrder && modalMode === 'cart');
   const itemsToShow = modalMode === 'bill' ? (activeOrder?.items || []) : cart;
   const totalToShow = modalMode === 'bill' ? (activeOrder?.total || 0) : cartTotal;
@@ -93,7 +93,7 @@ export const CartModal: React.FC<CartModalProps> = ({
                     : 'Tu Pedido en Carrito'}
               </h3>
               <p className="text-[11px] text-[#a8a29e] flex items-center gap-1.5">
-                <span>{currentTable?.name || `Mesa #${currentTableId}`}</span>
+                <span>{currentTable ? currentTable.name : 'Mesa no asignada'}</span>
                 {modalMode === 'cart' && totalItemsCount > 0 && (
                   <>
                     <span>•</span>
@@ -120,13 +120,23 @@ export const CartModal: React.FC<CartModalProps> = ({
         {/* Scrollable Content Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 min-h-0 overscroll-contain">
           {/* Table Selector Box inside Cart so user can switch table easily */}
-          <div className="bg-[#292524] p-3 rounded-xl border border-[#3a3632] flex items-center justify-between text-xs">
-            <span className="text-[#a8a29e] font-medium">Mesa:</span>
+          <div className={`p-3 rounded-xl border flex items-center justify-between text-xs transition-colors ${
+            currentTableId === null ? 'bg-amber-950/30 border-amber-500/50' : 'bg-[#292524] border-[#3a3632]'
+          }`}>
+            <span className="text-[#a8a29e] font-medium flex items-center gap-1.5">
+              <span>Mesa:</span>
+              {currentTableId === null && (
+                <span className="text-amber-400 font-bold text-[10px]">(Requerida para enviar)</span>
+              )}
+            </span>
             <select
-              value={currentTableId}
+              value={currentTableId ?? ''}
               onChange={(e) => onTableChange(Number(e.target.value))}
               className="bg-[#1c1917] text-[#ff7a00] font-bold border border-[#3a3632] rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-[#ff7a00] cursor-pointer"
             >
+              <option value="" disabled className="bg-[#1c1917] text-stone-400">
+                -- Selecciona tu Mesa --
+              </option>
               {tables.map(t => (
                 <option key={t.id} value={t.id}>
                   Mesa #{t.id} - {t.name}
