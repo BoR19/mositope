@@ -23,5 +23,13 @@ service cloud.firestore {
       allow update: if true;
       allow delete: if true;
     }
+
+    // Colección Mesas: Gestión de mesas, adición y eliminación
+    match /mesas/{mesaId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
   }
 }

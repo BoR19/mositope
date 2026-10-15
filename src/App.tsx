@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Utensils, QrCode, ShoppingBag, Clock, Sparkles, AlertCircle, 
-  ChefHat, Layers, Award, Bell, FileText, CheckCheck, LogIn, LogOut, Lock
+  ChefHat, Layers, Award, Bell, FileText, CheckCheck, LogIn, LogOut, Lock,
+  Plus, Trash2
 } from 'lucide-react';
 import { db, auth, googleProvider } from './firebase.ts';
 import { collection, onSnapshot, addDoc, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
@@ -16,6 +17,7 @@ import { MobileDock } from './components/MobileDock.tsx';
 import { QrModal } from './components/QrModal.tsx';
 import { ActiveOrderBanner } from './components/ActiveOrderBanner.tsx';
 import { StaffLoginView, StaffSession } from './components/StaffLoginView.tsx';
+import { AddTableModal, DeleteTableModal } from './components/TableModals.tsx';
 
 export default function App() {
   // Authentication & Core Data States
@@ -56,6 +58,8 @@ export default function App() {
   const [notification, setNotification] = useState<NotificationState | null>(null);
   const [qrModalTable, setQrModalTable] = useState<Table | null>(null);
   const [waiterCalls, setWaiterCalls] = useState<WaiterCall[]>([]);
+  const [isAddTableModalOpen, setIsAddTableModalOpen] = useState<boolean>(false);
+  const [tableToDelete, setTableToDelete] = useState<Table | null>(null);
 
   // Show Toast Helper
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -126,11 +130,52 @@ export default function App() {
       console.warn("Llamadas snapshot listener error:", error);
     });
 
+    const unsubscribeTables = onSnapshot(collection(db, 'mesas'), async (snapshot) => {
+      if (snapshot.docs.length === 0) {
+        // Seed initial tables if collection is empty
+        for (const item of INITIAL_TABLES) {
+          try {
+            await setDoc(doc(db, 'mesas', String(item.id)), {
+              id: item.id,
+              name: item.name,
+              seats: item.seats
+            });
+          } catch (e) {
+            console.error("Error al sembrar mesa inicial:", e);
+          }
+        }
+      } else {
+        const liveTables: Table[] = snapshot.docs.map(d => {
+          const data = d.data();
+          return {
+            id: Number(data.id || d.id),
+            name: data.name || `Mesa ${d.id}`,
+            seats: Number(data.seats || 4),
+            status: 'free' as const,
+            currentOrder: null
+          };
+        }).sort((a, b) => a.id - b.id);
+
+        setTables(prev => {
+          return liveTables.map(lt => {
+            const existing = prev.find(p => p.id === lt.id);
+            if (existing && existing.status !== 'free') {
+              return { ...lt, status: existing.status, currentOrder: existing.currentOrder };
+            }
+            return lt;
+          });
+        });
+      }
+    }, (error) => {
+      console.warn("Mesas snapshot listener error:", error);
+    });
+
     return () => {
       unsubscribeAuth();
       unsubscribeMenu();
       unsubscribeOrders();
       unsubscribeCalls();
+      unsubscribeTables();
     };
   }, []);
 
@@ -449,6 +494,54 @@ export default function App() {
     } else {
       setTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'free', currentOrder: null } : t));
       showToast(`Mesa #${tableId} está libre.`);
+    }
+  };
+
+  // Add Table to Firestore and Local State
+  const handleAddTable = async (newTable: { id: number; name: string; seats: number }) => {
+    try {
+      await setDoc(doc(db, 'mesas', String(newTable.id)), {
+        id: newTable.id,
+        name: newTable.name,
+        seats: newTable.seats,
+        status: 'free'
+      });
+      setTables(prev => {
+        if (prev.some(t => t.id === newTable.id)) return prev;
+        const createdTable: Table = { ...newTable, status: 'free' as const, currentOrder: null };
+        return [...prev, createdTable].sort((a, b) => a.id - b.id);
+      });
+      showToast(`¡${newTable.name} agregada con éxito! 🎉`);
+    } catch (e) {
+      console.error("Error al agregar mesa en Firestore:", e);
+      const createdTable: Table = { ...newTable, status: 'free' as const, currentOrder: null };
+      setTables(prev => [...prev, createdTable].sort((a, b) => a.id - b.id));
+      showToast(`¡${newTable.name} agregada! 🎉`);
+    }
+  };
+
+  // Delete Table from Firestore and Local State
+  const handleDeleteTable = async (tableId: number) => {
+    const table = tables.find(t => t.id === tableId);
+    if (table && table.status !== 'free') {
+      showToast(`No se puede eliminar la Mesa #${tableId} porque tiene comensales o comanda activa.`, 'error');
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, 'mesas', String(tableId)));
+      setTables(prev => prev.filter(t => t.id !== tableId));
+      if (currentTableId === tableId) {
+        setCurrentTableId(null);
+      }
+      showToast(`Mesa #${tableId} eliminada correctamente.`);
+    } catch (e) {
+      console.error("Error al eliminar mesa en Firestore:", e);
+      setTables(prev => prev.filter(t => t.id !== tableId));
+      if (currentTableId === tableId) {
+        setCurrentTableId(null);
+      }
+      showToast(`Mesa #${tableId} eliminada.`);
     }
   };
 
@@ -824,13 +917,25 @@ export default function App() {
               <div className="space-y-8 animate-fadeIn">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-[24px] sm:text-[28px] font-serif font-extrabold tracking-tight text-[#f5efe6]">
-                  Gestión de Mesas y Códigos QR
-                </h2>
-                <p className="text-sm text-[#a8a29e]">
-                  Visualiza el consumo en tiempo real, cobra o imprime los códigos QR para cada mesa.
+                <div className="flex items-center gap-3">
+                  <h2 className="text-[24px] sm:text-[28px] font-serif font-extrabold tracking-tight text-[#f5efe6]">
+                    Gestión de Mesas y Códigos QR
+                  </h2>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#ff7a00]/20 text-[#ff7a00] border border-[#ff7a00]/30 font-sans">
+                    {tables.length} mesas
+                  </span>
+                </div>
+                <p className="text-sm text-[#a8a29e] mt-1">
+                  Visualiza el consumo en tiempo real, agrega o elimina mesas, cobra o imprime los códigos QR para cada mesa.
                 </p>
               </div>
+              <button
+                onClick={() => setIsAddTableModalOpen(true)}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-[14px] bg-[#ff7a00] hover:bg-[#ff8c1a] text-white font-bold text-sm shadow-[0_4px_20px_rgba(255,122,0,0.35)] transition-all active:scale-95 cursor-pointer shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Agregar Nueva Mesa</span>
+              </button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -891,12 +996,21 @@ export default function App() {
                     >
                       <QrCode className="w-4 h-4" /> Ver / Imprimir QR
                     </button>
-                    {table.status !== 'free' && (
+                    {table.status !== 'free' ? (
                       <button
                         onClick={() => liberateTable(table.id)}
                         className="w-full py-2.5 px-3 rounded-[12px] bg-emerald-600 hover:bg-emerald-700 text-[13px] font-semibold text-white transition-colors flex items-center justify-center gap-2 cursor-pointer shadow"
                       >
                         <CheckCheck className="w-4 h-4" /> Cobrar y Liberar Mesa
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setTableToDelete(table)}
+                        className="w-full py-2 px-3 rounded-[12px] bg-[#1c1917] hover:bg-red-950/60 border border-[#3a3632] hover:border-red-500/40 text-[12px] font-semibold text-[#a8a29e] hover:text-red-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                        title="Eliminar mesa del restaurante"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                        <span>Eliminar Mesa</span>
                       </button>
                     )}
                   </div>
@@ -1152,6 +1266,21 @@ export default function App() {
         table={qrModalTable}
         onClose={() => setQrModalTable(null)}
         onPrint={printQRCode}
+      />
+
+      {/* Add Table Modal */}
+      <AddTableModal
+        isOpen={isAddTableModalOpen}
+        onClose={() => setIsAddTableModalOpen(false)}
+        existingTables={tables}
+        onAddTable={handleAddTable}
+      />
+
+      {/* Delete Table Modal */}
+      <DeleteTableModal
+        table={tableToDelete}
+        onClose={() => setTableToDelete(null)}
+        onConfirmDelete={handleDeleteTable}
       />
 
     </div>

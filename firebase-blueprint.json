@@ -40,6 +40,18 @@
         "createdAt": { "type": "number" }
       },
       "required": ["tableId", "tableName", "type", "time"]
+    },
+    "Mesa": {
+      "title": "Mesa",
+      "description": "Una mesa del restaurante.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "name": { "type": "string" },
+        "seats": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "name", "seats"]
     }
   },
   "firestore": {
@@ -54,6 +66,10 @@
     "/llamadas/{llamadaId}": {
       "schema": "Llamada",
       "description": "Colección de llamadas de mozo y pedidos de cuenta."
+    },
+    "/mesas/{mesaId}": {
+      "schema": "Mesa",
+      "description": "Colección de mesas del restaurante."
     }
   }
 }
