@@ -1,5 +1,37 @@
 import { MenuItem, Table } from '../types/index.ts';
 
+/* =========================================================================================
+ * 🌟 GUÍA SUPER FÁCIL PARA EDITAR PLATOS, PRECIOS Y FOTOS (COMO PARA UN NIÑO DE 12 AÑOS):
+ * 
+ * 🥩 ¿QUÉ ES ESTE ARCHIVO (menuData.ts)?
+ * Imagina que este archivo es la gran libreta de cocina del restaurante "El Churo Mosito".
+ * Aquí están anotados todos los platos y bebidas deliciosos que vendemos.
+ * 
+ * 📸 ¿DÓNDE Y CÓMO CAMBIO LA IMAGEN DE CUALQUIER PLATO O BEBIDA?
+ * ¡Es muy fácil! Sigue estos 3 pasitos:
+ * 1. Busca el plato que quieres cambiar (por ejemplo: POLLO A LA LEÑA).
+ * 2. Busca la línea que dice:
+ *       image: 'https://images.unsplash.com/...'
+ * 3. Borra el link viejo entre las comillas simples ' ' y pega el link de tu foto nueva.
+ *    ¡Y listo! Se verá automáticamente en el celular y computadora de todos los clientes.
+ * 
+ * 💰 ¿CÓMO CAMBIO EL PRECIO EN BOLIVIANOS?
+ * 1. Busca la línea que dice:
+ *       precioBs: 35,
+ * 2. Cambia el número 35 por el nuevo precio (por ejemplo: 40).
+ * 
+ * 🏷️ ¿QUÉ SIGNIFICA CADA DATO DE UN PLATO?
+ * - id: Es como el número de carnet o DNI del plato (debe ser único, ej: "pc-1").
+ * - categoria: La sección del menú donde aparece (ej: "PARRILLA Y CRUZ", "SOPAS", "JUGOS").
+ * - nombre: El nombre rico del plato en letras mayúsculas.
+ * - descripcion: Qué ingredientes trae (papa, ensalada, arroz, etc.).
+ * - precioBs: Cuántos Bolivianos cuesta pagar este plato.
+ * - disponible: Si es 'true' hay comida disponible. Si es 'false', saldrá como "Agotado".
+ * - image: La foto del plato. ¡Pega aquí tu foto favorita!
+ * - prepTime: Cuántos minutos tarda el cocinero en prepararlo (ej: "20 min").
+ * - spicy: Nivel de picante del 0 al 3 (0 = sin picante, 1 = suave, 2 = medio, 3 = muy picante).
+ * ========================================================================================= */
+
 export const MENU_CATEGORIAS: string[] = [
   "PARRILLA Y CRUZ",
   "CORTES A LA PARRILLA",
@@ -15,14 +47,17 @@ export const MENU_CATEGORIAS: string[] = [
 ];
 
 export const INITIAL_MENU: MenuItem[] = [
-  // PARRILLA Y CRUZ
+  // -------------------------------------------------------------
+  // SECCIÓN 1: PARRILLA Y CRUZ (Carnes asadas y platos a la leña)
+  // -------------------------------------------------------------
   {
     id: "pc-1",
     categoria: "PARRILLA Y CRUZ",
     nombre: "POLLO A LA LEÑA",
     descripcion: "Acompañado con arroz graneado, papa, oca, yuca y camote.",
-    precioBs: 35,
+    precioBs: 35, // 💰 Cambia aquí el precio en Bolivianos
     disponible: true,
+    // 📸 FOTO DEL POLLO: Cambia el link entre comillas para poner tu propia foto:
     image: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=600&q=80',
     prepTime: '20 min',
     spicy: 0
@@ -523,14 +558,19 @@ export const INITIAL_MENU: MenuItem[] = [
     categoria: "JUGOS DE LA CASA",
     nombre: "MOCOCHINCHE",
     descripcion: "Refresco tradicional de durazno deshidratado.",
-    precioBs: 13,
+    precioBs: 13, // 💰 Precio en Bolivianos
     disponible: true,
+    // 📸 FOTO DEL MOCOCHINCHE: Pega aquí la foto de tu refresco:
     image: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=600&q=80',
     prepTime: '3 min',
     spicy: 0
   },
 
-  // COCTELES
+  // =============================================================
+  // 🍸 SECCIÓN: COCTELES Y TRAGOS
+  // 💡 Para cambiar la foto de un coctel: cambia el link en `image: '...'`
+  // 💡 Para cambiar el precio: cambia el número en `precioBs: ...`
+  // =============================================================
   {
     id: "coc-1",
     categoria: "COCTELES",
@@ -538,6 +578,7 @@ export const INITIAL_MENU: MenuItem[] = [
     descripcion: "Margarita especial con cerveza Corona.",
     precioBs: 36,
     disponible: true,
+    // 📸 FOTO DEL COCTEL:
     image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?auto=format&fit=crop&w=600&q=80',
     prepTime: '5 min',
     spicy: 0

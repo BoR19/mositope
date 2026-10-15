@@ -2,6 +2,21 @@ import React from 'react';
 import { Plus, Check, Clock } from 'lucide-react';
 import { MenuItem } from '../types/index.ts';
 
+/* =========================================================================================
+ * 🌟 COMENTARIOS DIDÁCTICOS (EXPLICACIÓN FÁCIL COMO PARA UN NIÑO DE 12 AÑOS):
+ * 
+ * ¿QUÉ ES ESTE COMPONENTE (ProductCard)?
+ * Imagina que este archivo es como imprimir un cromo coleccionable o tarjeta de cada plato.
+ * Muestra la foto rica, el nombre, los ingredientes, el precio en Bolivianos y el botón para pedir.
+ * 
+ * 📸 ¿DÓNDE SE MUESTRA LA IMAGEN Y QUÉ HACE?
+ * - La etiqueta <img src={product.image} /> carga la foto guardada en el menú.
+ * - Si por alguna razón la foto no carga o el link está roto, la función "onError" entra
+ *   al rescate y pone una foto deliciosa de carne asada para que la tarjeta nunca quede fea.
+ * - Si el plato está marcado como "Agotado", la foto se pone en blanco y negro y aparece
+ *   un cartel rojo que dice "Agotado" para que nadie lo pida por error.
+ * ========================================================================================= */
+
 interface ProductCardProps {
   product: MenuItem;
   onAddToCart: (product: MenuItem) => void;
@@ -15,12 +30,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 }) => {
   return (
     <div className="group bg-[#292524] border border-[#3a3632] rounded-[20px] overflow-hidden flex flex-col justify-between hover:border-[#ff7a00]/50 transition-all duration-300 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
-      {/* Product Image */}
+      {/* 🖼️ ZONA DE LA FOTO DEL PLATO: Aquí se ve la imagen en la pantalla del cliente */}
       <div className="relative h-[180px] overflow-hidden bg-[#1c1917]">
         <img
           src={product.image}
           alt={product.nombre}
           loading="lazy"
+          /* 🛡️ Si el link de la foto falla, onError pone esta foto de emergencia: */
           onError={(e) => {
             (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=600&q=80';
           }}
@@ -28,6 +44,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             product.disponible ? 'opacity-90' : 'opacity-30 grayscale'
           }`}
         />
+        {/* Cartelito si el plato está agotado */}
         {!product.disponible && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
             <span className="px-3 py-1 bg-red-600 text-white text-xs font-bold uppercase tracking-widest rounded-full shadow-lg">
@@ -35,6 +52,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             </span>
           </div>
         )}
+        {/* Relojito con el tiempo de preparación */}
         {product.prepTime && product.disponible && (
           <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg flex items-center gap-1 text-[11px] text-[#f5efe6] font-medium border border-white/10">
             <Clock className="w-3 h-3 text-[#ff7a00]" />

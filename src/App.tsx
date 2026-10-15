@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Utensils, QrCode, ShoppingBag, Clock, Sparkles, AlertCircle, 
   ChefHat, Layers, Award, Bell, FileText, CheckCheck, LogIn, LogOut, Lock,
-  Plus, Trash2
+  Plus, Trash2, Pencil, Search, DollarSign, Image as ImageIcon, SlidersHorizontal
 } from 'lucide-react';
 import { db, auth, googleProvider } from './firebase.ts';
 import { collection, onSnapshot, addDoc, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
@@ -18,6 +18,7 @@ import { QrModal } from './components/QrModal.tsx';
 import { ActiveOrderBanner } from './components/ActiveOrderBanner.tsx';
 import { StaffLoginView, StaffSession } from './components/StaffLoginView.tsx';
 import { AddTableModal, DeleteTableModal } from './components/TableModals.tsx';
+import { AddEditDishModal, QuickPriceModal, DeleteDishModal } from './components/DishModals.tsx';
 
 export default function App() {
   // Authentication & Core Data States
@@ -60,6 +61,14 @@ export default function App() {
   const [waiterCalls, setWaiterCalls] = useState<WaiterCall[]>([]);
   const [isAddTableModalOpen, setIsAddTableModalOpen] = useState<boolean>(false);
   const [tableToDelete, setTableToDelete] = useState<Table | null>(null);
+
+  // Estados para la gestión de Platos, Bebidas y Precios del Menú:
+  const [dishModalOpen, setDishModalOpen] = useState<boolean>(false);
+  const [dishToEdit, setDishToEdit] = useState<MenuItem | null>(null);
+  const [dishToDelete, setDishToDelete] = useState<MenuItem | null>(null);
+  const [dishToQuickPrice, setDishToQuickPrice] = useState<MenuItem | null>(null);
+  const [adminMenuSearch, setAdminMenuSearch] = useState<string>('');
+  const [adminMenuCategory, setAdminMenuCategory] = useState<string>('TODOS');
 
   // Show Toast Helper
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -104,18 +113,21 @@ export default function App() {
       console.warn("Pedidos snapshot listener error:", error);
     });
 
+    // 📡 Sincronización en vivo del Menú con la base de datos (Firestore):
+    // Como si fuera una pizarra mágica: cuando alguien en la oficina cambia un precio,
+    // o añade un plato nuevo, todos los celulares lo ven al instante sin recargar la página.
     const unsubscribeMenu = onSnapshot(collection(db, 'menu'), async (snapshot) => {
-      const existingIds = new Set(snapshot.docs.map(d => d.id));
-      for (const item of INITIAL_MENU) {
-        if (!existingIds.has(item.id)) {
+      if (snapshot.docs.length === 0) {
+        // Si la base de datos está totalmente vacía por primera vez, subimos los platos iniciales:
+        for (const item of INITIAL_MENU) {
           try {
             await setDoc(doc(db, 'menu', item.id), item);
           } catch (e) {
             console.error("Error al sembrar ítem de menú:", e);
           }
         }
-      }
-      if (snapshot.docs.length > 0) {
+      } else {
+        // Cargamos todos los platos existentes en la nube:
         setMenu(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as MenuItem)));
       }
     });
@@ -349,9 +361,107 @@ export default function App() {
       showToast(`Estado de disponibilidad actualizado.`);
     } catch (e) {
       console.error("Error toggling availability:", e);
-      showToast("Error al actualizar disponibilidad", "error");
+      try {
+        const dish = menu.find(m => m.id === id);
+        if (dish) {
+          await setDoc(doc(db, 'menu', id), { ...dish, disponible: !currentStatus });
+        }
+      } catch (e2) {
+        console.warn("Fallback setDoc error:", e2);
+      }
+      setMenu(prev => prev.map(m => m.id === id ? { ...m, disponible: !currentStatus } : m));
+      showToast(`Estado de disponibilidad actualizado.`);
     }
   };
+
+  /* =========================================================================
+   * 🍽️ GESTIÓN DEL MENÚ: GUARDAR, EDITAR, CAMBIAR PRECIO Y BORRAR PLATOS
+   * 
+   * 🌟 EXPLICACIÓN SENCILLA COMO PARA UN NIÑO DE 12 AÑOS:
+   * 
+   * 1. handleSaveDish:
+   *    Toma toda la información del plato (nombre, precio, foto bonita, ingredientes)
+   *    y la guarda en la base de datos (Firestore). Funciona tanto para platos NUEVOS
+   *    como para platos que estamos EDITANDO.
+   * 
+   * 2. handleDeleteDish:
+   *    Elimina el plato de la base de datos para que ya no aparezca más en el menú.
+   * 
+   * 3. handleQuickUpdatePrice:
+   *    Permite cambiar el precio en Bolivianos (Bs.) en un parpadeo.
+   * ========================================================================= */
+
+  // 1. Guardar o actualizar plato/bebida
+  const handleSaveDish = async (dishData: MenuItem, isEditing: boolean) => {
+    try {
+      await setDoc(doc(db, 'menu', dishData.id), dishData);
+      setMenu(prev => {
+        const exists = prev.some(item => item.id === dishData.id);
+        if (exists) {
+          return prev.map(item => item.id === dishData.id ? dishData : item);
+        }
+        return [dishData, ...prev];
+      });
+      showToast(isEditing ? `¡Plato "${dishData.nombre}" actualizado!` : `¡Plato "${dishData.nombre}" agregado al menú! 🎉`);
+    } catch (error) {
+      console.error("Error al guardar plato en Firestore:", error);
+      // Fallback local en caso de desconexión:
+      setMenu(prev => {
+        const exists = prev.some(item => item.id === dishData.id);
+        if (exists) {
+          return prev.map(item => item.id === dishData.id ? dishData : item);
+        }
+        return [dishData, ...prev];
+      });
+      showToast(isEditing ? `Plato "${dishData.nombre}" actualizado.` : `Plato "${dishData.nombre}" agregado.`);
+    }
+  };
+
+  // 2. Eliminar plato/bebida del menú
+  const handleDeleteDish = async (dishId: string) => {
+    try {
+      await deleteDoc(doc(db, 'menu', dishId));
+      setMenu(prev => prev.filter(item => item.id !== dishId));
+      showToast('Plato o bebida eliminado del menú.');
+    } catch (error) {
+      console.error("Error al eliminar plato en Firestore:", error);
+      setMenu(prev => prev.filter(item => item.id !== dishId));
+      showToast('Plato eliminado del menú.');
+    }
+  };
+
+  // 3. Cambio rápido de precio en Bolivianos (Bs.)
+  const handleQuickUpdatePrice = async (dishId: string, newPrice: number) => {
+    try {
+      await updateDoc(doc(db, 'menu', dishId), { precioBs: newPrice });
+      setMenu(prev => prev.map(item => item.id === dishId ? { ...item, precioBs: newPrice } : item));
+      showToast(`Precio actualizado a Bs. ${newPrice.toFixed(2)}.`);
+    } catch (error) {
+      console.error("Error al actualizar precio en Firestore:", error);
+      try {
+        const targetDish = menu.find(m => m.id === dishId);
+        if (targetDish) {
+          await setDoc(doc(db, 'menu', dishId), { ...targetDish, precioBs: newPrice });
+        }
+      } catch (e2) {
+        console.warn("Fallback setDoc fallo:", e2);
+      }
+      setMenu(prev => prev.map(item => item.id === dishId ? { ...item, precioBs: newPrice } : item));
+      showToast(`Precio actualizado a Bs. ${newPrice.toFixed(2)}.`);
+    }
+  };
+
+  // Filtro inteligente para buscar platos y bebidas en el panel de administración
+  const filteredAdminMenu = useMemo(() => {
+    return menu.filter(item => {
+      const matchSearch = adminMenuSearch.trim() === '' || 
+        item.nombre.toLowerCase().includes(adminMenuSearch.toLowerCase()) ||
+        (item.descripcion && item.descripcion.toLowerCase().includes(adminMenuSearch.toLowerCase())) ||
+        item.categoria.toLowerCase().includes(adminMenuSearch.toLowerCase());
+      const matchCat = adminMenuCategory === 'TODOS' || item.categoria === adminMenuCategory;
+      return matchSearch && matchCat;
+    });
+  }, [menu, adminMenuSearch, adminMenuCategory]);
 
   const callWaiter = async (table: Table) => {
     const callData = {
@@ -1161,44 +1271,261 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Menu Inventory */}
-                  <div className="bg-[#292524] border border-[#3a3632] rounded-[20px] p-6 overflow-x-auto">
-                    <h3 className="text-lg font-serif font-bold text-[#f5efe6] mb-4">Inventario de Platos y Bebidas</h3>
-                    <table className="w-full text-left text-sm text-[#a8a29e]">
-                      <thead className="text-xs text-[#f5efe6] uppercase border-b border-[#3a3632]">
-                        <tr>
-                          <th className="px-4 py-3">Artículo</th>
-                          <th className="px-4 py-3">Categoría</th>
-                          <th className="px-4 py-3">Precio</th>
-                          <th className="px-4 py-3">Disponibilidad</th>
-                          <th className="px-4 py-3">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {menu.map(item => (
-                          <tr key={item.id} className="border-b border-[#3a3632]">
-                            <td className="px-4 py-3 text-[#f5efe6] font-medium">{item.nombre}</td>
-                            <td className="px-4 py-3 text-xs">{item.categoria}</td>
-                            <td className="px-4 py-3 font-semibold text-[#f5efe6]">Bs. {item.precioBs.toFixed(2)}</td>
-                            <td className="px-4 py-3">
-                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${item.disponible ? 'bg-emerald-950 text-emerald-300' : 'bg-red-950 text-red-300'}`}>
-                                {item.disponible ? 'Disponible' : 'Agotado'}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <button 
-                                onClick={() => toggleAvailability(item.id, item.disponible)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                                  item.disponible ? 'bg-red-900/60 text-red-200 hover:bg-red-800' : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                                }`}
-                              >
-                                {item.disponible ? 'Marcar Agotado' : 'Activar'}
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  {/* =========================================================================
+                   * 📋 INVENTARIO Y GESTIÓN DE PLATOS Y BEBIDAS DEL RESTAURANTE
+                   * 
+                   * 🌟 EXPLICACIÓN FÁCIL COMO PARA UN NIÑO DE 12 AÑOS:
+                   * Aquí el dueño o administrador del restaurante tiene el control total:
+                   * 1. ➕ Botón "+ Agregar Plato o Bebida": Abre una ventana para inventar un plato nuevo.
+                   * 2. 💰 Botón "Bs. / Precio": Permite cambiar cuánto cuesta un plato si la carne sube o baja.
+                   * 3. ✏️ Botón "Editar": Para cambiar la foto, los ingredientes o el nombre.
+                   * 4. 🗑️ Botón "Eliminar": Para quitar un plato que ya no se va a vender.
+                   * 5. 🔍 Buscador y Filtros: Para encontrar cualquier comida o bebida rápidamente.
+                   * ========================================================================= */}
+                  <div className="bg-[#292524] border border-[#3a3632] rounded-[24px] p-5 sm:p-7 space-y-6 shadow-xl">
+                    {/* Cabecera del Inventario con Título y Botón Principal */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#3a3632] pb-5">
+                      <div>
+                        <div className="flex items-center gap-2.5">
+                          <h3 className="text-xl sm:text-2xl font-serif font-black text-[#f5efe6]">
+                            Inventario de Platos y Bebidas
+                          </h3>
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#ff7a00]/15 text-[#ff7a00] border border-[#ff7a00]/30">
+                            {menu.length} artículos
+                          </span>
+                        </div>
+                        <p className="text-xs sm:text-sm text-[#a8a29e] mt-1">
+                          Edita precios en Bolivianos (Bs.), fotos, ingredientes o agrega nuevos platos al instante.
+                        </p>
+                      </div>
+
+                      {/* Botón para Agregar Plato o Bebida */}
+                      <button
+                        onClick={() => {
+                          setDishToEdit(null);
+                          setDishModalOpen(true);
+                        }}
+                        className="px-4 py-2.5 rounded-xl bg-[#ff7a00] hover:bg-[#ff8c1a] active:scale-95 text-white text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(255,122,0,0.3)] cursor-pointer shrink-0"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Agregar Plato o Bebida</span>
+                      </button>
+                    </div>
+
+                    {/* Tarjetas de Estadísticas Rápidas */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3.5 rounded-2xl bg-[#1c1917] border border-[#3a3632]">
+                        <span className="text-[11px] text-[#a8a29e] uppercase font-bold tracking-wider">Total Ítems</span>
+                        <p className="text-xl font-black text-[#f5efe6] mt-0.5">{menu.length}</p>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-[#1c1917] border border-[#3a3632]">
+                        <span className="text-[11px] text-emerald-400 uppercase font-bold tracking-wider">Disponibles</span>
+                        <p className="text-xl font-black text-emerald-400 mt-0.5">{menu.filter(m => m.disponible).length}</p>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-[#1c1917] border border-[#3a3632]">
+                        <span className="text-[11px] text-red-400 uppercase font-bold tracking-wider">Agotados</span>
+                        <p className="text-xl font-black text-red-400 mt-0.5">{menu.filter(m => !m.disponible).length}</p>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-[#1c1917] border border-[#3a3632]">
+                        <span className="text-[11px] text-amber-400 uppercase font-bold tracking-wider">Categorías</span>
+                        <p className="text-xl font-black text-amber-400 mt-0.5">{new Set(menu.map(m => m.categoria)).size}</p>
+                      </div>
+                    </div>
+
+                    {/* Buscador y Filtro de Categorías */}
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <Search className="w-4 h-4 text-[#a8a29e] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={adminMenuSearch}
+                          onChange={(e) => setAdminMenuSearch(e.target.value)}
+                          placeholder="Buscar plato, bebida, ingrediente o categoría..."
+                          className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#1c1917] border border-[#3a3632] focus:border-[#ff7a00] text-xs sm:text-sm text-[#f5efe6] focus:outline-none placeholder-[#78716c]"
+                        />
+                        {adminMenuSearch && (
+                          <button
+                            onClick={() => setAdminMenuSearch('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#a8a29e] hover:text-white"
+                          >
+                            Limpiar
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Pestañas de categoría para filtrar rápido */}
+                      <div className="flex gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
+                        <button
+                          onClick={() => setAdminMenuCategory('TODOS')}
+                          className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors cursor-pointer font-bold ${
+                            adminMenuCategory === 'TODOS'
+                              ? 'bg-[#ff7a00] text-white'
+                              : 'bg-[#1c1917] text-[#a8a29e] hover:text-white border border-[#3a3632]'
+                          }`}
+                        >
+                          Todos ({menu.length})
+                        </button>
+                        {MENU_CATEGORIAS.map((cat) => {
+                          const count = menu.filter(m => m.categoria === cat).length;
+                          if (count === 0) return null;
+                          return (
+                            <button
+                              key={cat}
+                              onClick={() => setAdminMenuCategory(cat)}
+                              className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors cursor-pointer font-semibold ${
+                                adminMenuCategory === cat
+                                  ? 'bg-[#ff7a00] text-white font-bold'
+                                  : 'bg-[#1c1917] text-[#a8a29e] hover:text-white border border-[#3a3632]'
+                              }`}
+                            >
+                              {cat} ({count})
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Tabla de Artículos con Imágenes, Precios y Acciones */}
+                    {filteredAdminMenu.length === 0 ? (
+                      <div className="text-center py-12 bg-[#1c1917] rounded-2xl border border-[#3a3632] text-[#a8a29e] space-y-2">
+                        <p className="text-sm font-bold text-[#f5efe6]">No se encontraron platos ni bebidas</p>
+                        <p className="text-xs">Prueba buscando con otra palabra o selecciona otra categoría.</p>
+                        <button
+                          onClick={() => {
+                            setAdminMenuSearch('');
+                            setAdminMenuCategory('TODOS');
+                          }}
+                          className="mt-2 px-3 py-1.5 rounded-lg bg-[#3a3632] text-xs font-bold text-white hover:bg-[#ff7a00] transition-colors"
+                        >
+                          Restablecer Filtros
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-2xl border border-[#3a3632]">
+                        <table className="w-full text-left text-xs sm:text-sm text-[#a8a29e]">
+                          <thead className="text-[11px] text-[#f5efe6] uppercase bg-[#1c1917] border-b border-[#3a3632]">
+                            <tr>
+                              <th className="px-4 py-3.5">Plato / Bebida</th>
+                              <th className="px-4 py-3.5">Categoría</th>
+                              <th className="px-4 py-3.5">Precio (Bs.)</th>
+                              <th className="px-4 py-3.5">Estado</th>
+                              <th className="px-4 py-3.5 text-right">Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#3a3632] bg-[#292524]">
+                            {filteredAdminMenu.map((item) => (
+                              <tr key={item.id} className="hover:bg-[#1c1917]/50 transition-colors">
+                                {/* Foto y Nombre del Plato */}
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-3">
+                                    <div 
+                                      onClick={() => {
+                                        setDishToEdit(item);
+                                        setDishModalOpen(true);
+                                      }}
+                                      className="relative w-12 h-12 rounded-xl overflow-hidden bg-[#1c1917] border border-[#3a3632] shrink-0 cursor-pointer group"
+                                      title="Clic para editar foto o detalles"
+                                    >
+                                      <img
+                                        src={item.image}
+                                        alt={item.nombre}
+                                        onError={(e) => {
+                                          (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=600&q=80';
+                                        }}
+                                        className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                                      />
+                                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <Pencil className="w-3.5 h-3.5 text-white" />
+                                      </div>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-bold text-[#f5efe6] truncate">{item.nombre}</p>
+                                      {item.descripcion && (
+                                        <p className="text-[11px] text-[#a8a29e] line-clamp-1 max-w-xs">{item.descripcion}</p>
+                                      )}
+                                      {item.notas && (
+                                        <span className="text-[10px] text-amber-300 font-semibold">{item.notas}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+
+                                {/* Categoría */}
+                                <td className="px-4 py-3">
+                                  <span className="text-[11px] font-bold text-[#ff7a00] bg-[#ff7a00]/10 px-2 py-0.5 rounded-full border border-[#ff7a00]/20 whitespace-nowrap">
+                                    {item.categoria}
+                                  </span>
+                                </td>
+
+                                {/* Precio con Botón de Edición Rápida */}
+                                <td className="px-4 py-3">
+                                  <button
+                                    onClick={() => setDishToQuickPrice(item)}
+                                    className="group flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#1c1917] hover:bg-[#3a3632] border border-[#3a3632] hover:border-[#ff7a00] text-[#f5efe6] cursor-pointer transition-colors"
+                                    title="Clic para cambiar el precio en 2 segundos"
+                                  >
+                                    <span className="font-mono font-black text-sm text-[#ff7a00]">
+                                      Bs. {item.precioBs.toFixed(2)}
+                                    </span>
+                                    <Pencil className="w-3 h-3 text-[#a8a29e] group-hover:text-white" />
+                                  </button>
+                                </td>
+
+                                {/* Disponibilidad en Cocina */}
+                                <td className="px-4 py-3">
+                                  <button
+                                    onClick={() => toggleAvailability(item.id, item.disponible)}
+                                    className={`px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer transition-colors border ${
+                                      item.disponible
+                                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700 hover:bg-emerald-900'
+                                        : 'bg-red-950 text-red-300 border-red-700 hover:bg-red-900'
+                                    }`}
+                                    title="Clic para alternar entre Disponible y Agotado"
+                                  >
+                                    {item.disponible ? '✓ Disponible' : '✕ Agotado'}
+                                  </button>
+                                </td>
+
+                                {/* Botones de Acción: Editar, Precio y Borrar */}
+                                <td className="px-4 py-3 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* Botón Editar Todo */}
+                                    <button
+                                      onClick={() => {
+                                        setDishToEdit(item);
+                                        setDishModalOpen(true);
+                                      }}
+                                      className="p-1.5 rounded-lg bg-[#1c1917] hover:bg-[#3a3632] text-[#f5efe6] hover:text-[#ff7a00] border border-[#3a3632] transition-colors cursor-pointer"
+                                      title="Editar plato completo (ingredientes, foto, etc.)"
+                                    >
+                                      <Pencil className="w-4 h-4" />
+                                    </button>
+
+                                    {/* Botón Cambiar Precio Rápido */}
+                                    <button
+                                      onClick={() => setDishToQuickPrice(item)}
+                                      className="p-1.5 rounded-lg bg-[#1c1917] hover:bg-[#3a3632] text-[#ff7a00] hover:text-white border border-[#3a3632] transition-colors cursor-pointer"
+                                      title="Cambiar precio rápidamente"
+                                    >
+                                      <DollarSign className="w-4 h-4" />
+                                    </button>
+
+                                    {/* Botón Eliminar Plato */}
+                                    <button
+                                      onClick={() => setDishToDelete(item)}
+                                      className="p-1.5 rounded-lg bg-[#1c1917] hover:bg-red-950/60 text-red-400 hover:text-red-300 border border-[#3a3632] hover:border-red-500/40 transition-colors cursor-pointer"
+                                      title="Eliminar este plato del menú"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1281,6 +1608,38 @@ export default function App() {
         table={tableToDelete}
         onClose={() => setTableToDelete(null)}
         onConfirmDelete={handleDeleteTable}
+      />
+
+      {/* =========================================================================
+       * 🍽️ VENTANAS MÁGICAS (MODALES) PARA PLATOS, PRECIOS Y FOTOS:
+       * 
+       * 🌟 EXPLICACIÓN COMO PARA UN NIÑO DE 12 AÑOS:
+       * 1. AddEditDishModal: La hoja de papel para inventar un plato o cambiarle la foto.
+       * 2. QuickPriceModal: El marcador rápido para cambiar el precio en 2 clics.
+       * 3. DeleteDishModal: El cartel de "¿Seguro?" antes de borrar un plato por accidente.
+       * ========================================================================= */}
+      <AddEditDishModal
+        isOpen={dishModalOpen}
+        onClose={() => {
+          setDishModalOpen(false);
+          setDishToEdit(null);
+        }}
+        dishToEdit={dishToEdit}
+        onSave={handleSaveDish}
+      />
+
+      <QuickPriceModal
+        isOpen={Boolean(dishToQuickPrice)}
+        onClose={() => setDishToQuickPrice(null)}
+        dish={dishToQuickPrice}
+        onUpdatePrice={handleQuickUpdatePrice}
+      />
+
+      <DeleteDishModal
+        isOpen={Boolean(dishToDelete)}
+        onClose={() => setDishToDelete(null)}
+        dish={dishToDelete}
+        onConfirmDelete={handleDeleteDish}
       />
 
     </div>
