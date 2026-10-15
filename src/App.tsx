@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Utensils, QrCode, ShoppingBag, Clock, Sparkles, AlertCircle, 
-  ChefHat, Layers, Award, Bell, FileText, CheckCheck, LogIn, LogOut
+  ChefHat, Layers, Award, Bell, FileText, CheckCheck, LogIn, LogOut, Lock
 } from 'lucide-react';
 import { db, auth, googleProvider } from './firebase.ts';
 import { collection, onSnapshot, addDoc, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
@@ -583,10 +583,10 @@ export default function App() {
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center p-1.5 rounded-[16px] border border-[#3a3632] bg-[#292524]">
             {[
-              { id: 'menu', label: 'Menú', icon: Utensils },
-              { id: 'tables', label: 'Mesas', icon: QrCode },
-              { id: 'kitchen', label: 'Cocina', icon: ChefHat },
-              { id: 'admin', label: 'Admin', icon: Layers },
+              { id: 'menu', label: 'Menú', icon: Utensils, isStaff: false },
+              { id: 'tables', label: 'Mesas', icon: QrCode, isStaff: true },
+              { id: 'kitchen', label: 'Cocina', icon: ChefHat, isStaff: true },
+              { id: 'admin', label: 'Admin', icon: Layers, isStaff: true },
             ].map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -600,7 +600,10 @@ export default function App() {
                   }`}
                 >
                   <Icon className="w-4 h-4" />
-                  {tab.label}
+                  <span>{tab.label}</span>
+                  {tab.isStaff && !isStaffAuthenticated && (
+                    <Lock className="w-3 h-3 text-[#78716c]" />
+                  )}
                   {tab.id === 'kitchen' && activeCount > 0 && (
                     <span className="ml-1 w-5 h-5 bg-amber-500 text-black rounded-full text-[10px] font-bold flex items-center justify-center">
                       {activeCount}
@@ -801,9 +804,24 @@ export default function App() {
           </div>
         )}
 
-        {/* Tables & QR Code Generator Tab */}
-        {activeTab === 'tables' && (
-          <div className="space-y-8 animate-fadeIn">
+        {/* Staff Protected Views: Mesas, Cocina KDS y Administración */}
+        {((activeTab === 'tables' || activeTab === 'admin') && (!isStaffAuthenticated || (staffSession?.role === 'cocina' && !user))) ? (
+          <StaffLoginView
+            onSuccess={(session) => setStaffSession(session)}
+            showToast={showToast}
+            requiredRole="Gestión de Mesas y Admin (PIN Administrador: 7777)"
+          />
+        ) : ((activeTab === 'kitchen') && !isStaffAuthenticated) ? (
+          <StaffLoginView
+            onSuccess={(session) => setStaffSession(session)}
+            showToast={showToast}
+            requiredRole="Cocina KDS (PIN Cocina: 1234 o Admin: 7777)"
+          />
+        ) : (
+          <div className="animate-fadeIn">
+            {/* Tables & QR Code Generator Tab */}
+            {activeTab === 'tables' && (
+              <div className="space-y-8 animate-fadeIn">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h2 className="text-[24px] sm:text-[28px] font-serif font-extrabold tracking-tight text-[#f5efe6]">
@@ -888,15 +906,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Kitchen KDS and Admin Protected Views */}
-        {(activeTab === 'kitchen' || activeTab === 'admin') && !isStaffAuthenticated ? (
-          <StaffLoginView
-            onSuccess={(session) => setStaffSession(session)}
-            showToast={showToast}
-            requiredRole={activeTab === 'kitchen' ? 'Cocina (KDS)' : 'Administración'}
-          />
-        ) : (
-          <div className="animate-fadeIn">
             {/* Kitchen KDS */}
             {activeTab === 'kitchen' && (
               <div className="space-y-8">
@@ -1131,6 +1140,7 @@ export default function App() {
         orders={orders}
         waiterCallsCount={waiterCalls.length}
         isCartOpen={customerModalOpen}
+        isStaffAuthenticated={isStaffAuthenticated}
         onOpenCart={() => {
           setModalMode('cart');
           setCustomerModalOpen(true);

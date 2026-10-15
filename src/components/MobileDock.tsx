@@ -1,5 +1,5 @@
 import React from 'react';
-import { Utensils, ShoppingBag, QrCode, ChefHat, Layers } from 'lucide-react';
+import { Utensils, ShoppingBag, QrCode, ChefHat, Layers, Lock } from 'lucide-react';
 import { Order, CartItem } from '../types/index.ts';
 
 interface MobileDockProps {
@@ -10,6 +10,7 @@ interface MobileDockProps {
   waiterCallsCount?: number;
   onOpenCart: () => void;
   isCartOpen: boolean;
+  isStaffAuthenticated?: boolean;
 }
 
 export const MobileDock: React.FC<MobileDockProps> = ({
@@ -20,16 +21,17 @@ export const MobileDock: React.FC<MobileDockProps> = ({
   waiterCallsCount = 0,
   onOpenCart,
   isCartOpen,
+  isStaffAuthenticated = false,
 }) => {
   const totalCartCount = cart.reduce((s, i) => s + i.qty, 0);
   const activeOrdersCount = orders.filter(o => o.status !== 'pagado' && o.status !== 'cancelado' && o.status !== 'servido').length;
 
   const tabs = [
-    { id: 'menu', label: 'Menú', icon: Utensils, isAction: false },
-    { id: 'cart-tab', label: 'Carrito', icon: ShoppingBag, isAction: true },
-    { id: 'tables', label: 'Mesas', icon: QrCode, isAction: false },
-    { id: 'kitchen', label: 'Cocina', icon: ChefHat, isAction: false },
-    { id: 'admin', label: 'Admin', icon: Layers, isAction: false },
+    { id: 'menu', label: 'Menú', icon: Utensils, isAction: false, isStaff: false },
+    { id: 'cart-tab', label: 'Carrito', icon: ShoppingBag, isAction: true, isStaff: false },
+    { id: 'tables', label: 'Mesas', icon: QrCode, isAction: false, isStaff: true },
+    { id: 'kitchen', label: 'Cocina', icon: ChefHat, isAction: false, isStaff: true },
+    { id: 'admin', label: 'Admin', icon: Layers, isAction: false, isStaff: true },
   ];
 
   return (
@@ -58,6 +60,11 @@ export const MobileDock: React.FC<MobileDockProps> = ({
                   tab.isAction && totalCartCount > 0 ? 'text-[#ff7a00]' : ''
                 }`}
               />
+              {tab.isStaff && !isStaffAuthenticated && (
+                <span className="absolute -top-1.5 -left-1.5 p-0.5 rounded-full bg-[#292524] text-stone-400 border border-[#3a3632]">
+                  <Lock className="w-2.5 h-2.5 text-stone-400" />
+                </span>
+              )}
               {tab.id === 'cart-tab' && totalCartCount > 0 && (
                 <span className="absolute -top-1.5 -right-2 px-1.5 min-w-[16px] h-4 bg-[#ff7a00] text-white rounded-full text-[9px] font-black flex items-center justify-center shadow">
                   {totalCartCount}

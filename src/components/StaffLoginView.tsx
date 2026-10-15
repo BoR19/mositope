@@ -229,10 +229,10 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
                   className="p-2.5 rounded-xl bg-[#1c1917] hover:bg-[#3a3632] border border-[#3a3632] text-left transition-colors cursor-pointer group"
                 >
                   <div className="text-[11px] font-bold text-[#f5efe6] group-hover:text-[#ff7a00] flex items-center justify-between">
-                    <span>Cocina (KDS)</span>
+                    <span>Cocina y Mesas</span>
                     <span className="font-mono text-[10px] bg-[#292524] px-1.5 py-0.5 rounded text-[#a8a29e]">1234</span>
                   </div>
-                  <span className="text-[10px] text-[#78716c]">Comandas y fogones</span>
+                  <span className="text-[10px] text-[#78716c]">KDS, fogones y mesas</span>
                 </button>
 
                 <button
@@ -244,7 +244,7 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
                     <span>Administrador</span>
                     <span className="font-mono text-[10px] bg-[#292524] px-1.5 py-0.5 rounded text-[#a8a29e]">7777</span>
                   </div>
-                  <span className="text-[10px] text-[#78716c]">Todo el restaurante</span>
+                  <span className="text-[10px] text-[#78716c]">Mesas, KDS y menú</span>
                 </button>
               </div>
             </div>
