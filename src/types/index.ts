@@ -59,6 +59,8 @@ export interface WaiterCall {
   tableName: string;
   type: 'mozo' | 'cuenta';
   time: string;
+  status?: 'pendiente' | 'atendido';
+  createdAt?: number;
 }
 
 export interface NotificationState {

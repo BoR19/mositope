@@ -15,5 +15,13 @@ service cloud.firestore {
       allow update: if true;
       allow delete: if isSignedIn();
     }
+
+    // Colección Llamadas: Solicitudes de mozo y cuenta en tiempo real desde las mesas para el panel de administración
+    match /llamadas/{llamadaId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
   }
 }

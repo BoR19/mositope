@@ -7,6 +7,7 @@ interface MobileDockProps {
   onTabChange: (tab: string) => void;
   cart: CartItem[];
   orders: Order[];
+  waiterCallsCount?: number;
   onOpenCart: () => void;
   isCartOpen: boolean;
 }
@@ -16,6 +17,7 @@ export const MobileDock: React.FC<MobileDockProps> = ({
   onTabChange,
   cart,
   orders,
+  waiterCallsCount = 0,
   onOpenCart,
   isCartOpen,
 }) => {
@@ -64,6 +66,11 @@ export const MobileDock: React.FC<MobileDockProps> = ({
               {tab.id === 'kitchen' && activeOrdersCount > 0 && (
                 <span className="absolute -top-1.5 -right-2 w-4 h-4 bg-amber-500 text-black rounded-full text-[9px] font-bold flex items-center justify-center">
                   {activeOrdersCount}
+                </span>
+              )}
+              {tab.id === 'admin' && waiterCallsCount > 0 && (
+                <span className="absolute -top-1.5 -right-2 w-4 h-4 bg-red-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center animate-pulse">
+                  {waiterCallsCount}
                 </span>
               )}
             </div>

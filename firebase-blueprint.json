@@ -25,6 +25,21 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "mesaId", "status", "total", "timestamp"]
+    },
+    "Llamada": {
+      "title": "Llamada",
+      "description": "Llamadas de mozo o solicitudes de cuenta de clientes.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tableId": { "type": "number" },
+        "tableName": { "type": "string" },
+        "type": { "type": "string", "enum": ["mozo", "cuenta"] },
+        "time": { "type": "string" },
+        "status": { "type": "string", "enum": ["pendiente", "atendido"] },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["tableId", "tableName", "type", "time"]
     }
   },
   "firestore": {
@@ -35,6 +50,10 @@
     "/pedidos/{pedidoId}": {
       "schema": "Pedido",
       "description": "Colección de pedidos activos."
+    },
+    "/llamadas/{llamadaId}": {
+      "schema": "Llamada",
+      "description": "Colección de llamadas de mozo y pedidos de cuenta."
     }
   }
 }

@@ -4,7 +4,7 @@ import {
   ChefHat, Layers, Award, Bell, FileText, CheckCheck, LogIn, LogOut
 } from 'lucide-react';
 import { db, auth, googleProvider } from './firebase.ts';
-import { collection, onSnapshot, addDoc, updateDoc, doc, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 
 import { MENU_CATEGORIAS, INITIAL_MENU, INITIAL_TABLES } from './data/menuData.ts';
@@ -116,10 +116,21 @@ export default function App() {
       }
     });
 
+    const unsubscribeCalls = onSnapshot(collection(db, 'llamadas'), (snapshot) => {
+      const liveCalls = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() } as WaiterCall))
+        .filter(c => !c.status || c.status === 'pendiente')
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      setWaiterCalls(liveCalls);
+    }, (error) => {
+      console.warn("Llamadas snapshot listener error:", error);
+    });
+
     return () => {
       unsubscribeAuth();
       unsubscribeMenu();
       unsubscribeOrders();
+      unsubscribeCalls();
     };
   }, []);
 
@@ -297,27 +308,42 @@ export default function App() {
     }
   };
 
-  const callWaiter = (table: Table) => {
-    const newCall: WaiterCall = {
-      id: `CALL-${Date.now()}`,
+  const callWaiter = async (table: Table) => {
+    const callData = {
       tableId: table.id,
       tableName: table.name,
-      type: 'mozo',
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      type: 'mozo' as const,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: Date.now(),
+      status: 'pendiente' as const
     };
-    setWaiterCalls(prev => [newCall, ...prev]);
-    showToast(`Llamada de mozo enviada para ${table.name}. ¡Un mozo viene en camino!`);
+
+    try {
+      await addDoc(collection(db, 'llamadas'), callData);
+      showToast(`Llamada de mozo enviada para ${table.name}. ¡Un mozo viene en camino! 🔔`);
+    } catch (e) {
+      console.error("Error al registrar llamada de mozo en Firestore:", e);
+      setWaiterCalls(prev => [{ id: `CALL-${Date.now()}`, ...callData }, ...prev]);
+      showToast(`Llamada de mozo enviada para ${table.name}. ¡Un mozo viene en camino! 🔔`);
+    }
   };
 
   const requestBill = async (table: Table) => {
-    const newCall: WaiterCall = {
-      id: `CALL-${Date.now()}`,
+    const callData = {
       tableId: table.id,
       tableName: table.name,
-      type: 'cuenta',
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      type: 'cuenta' as const,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: Date.now(),
+      status: 'pendiente' as const
     };
-    setWaiterCalls(prev => [newCall, ...prev]);
+
+    try {
+      await addDoc(collection(db, 'llamadas'), callData);
+    } catch (e) {
+      console.error("Error al registrar solicitud de cuenta en Firestore:", e);
+      setWaiterCalls(prev => [{ id: `CALL-${Date.now()}`, ...callData }, ...prev]);
+    }
 
     // Update order status to 'por-pagar' in Firestore if active order exists
     const activeOrder = orders.find(
@@ -335,6 +361,23 @@ export default function App() {
 
     setModalMode('bill');
     setCustomerModalOpen(true);
+    showToast(`Solicitud de cuenta registrada para ${table.name}. 🧾`);
+  };
+
+  const attendWaiterCall = async (callId: string) => {
+    try {
+      await updateDoc(doc(db, 'llamadas', callId), { status: 'atendido' });
+      showToast('Llamada atendida con éxito.');
+    } catch (e) {
+      console.warn("Error al actualizar llamada, eliminando:", e);
+      try {
+        await deleteDoc(doc(db, 'llamadas', callId));
+        showToast('Llamada atendida.');
+      } catch (err) {
+        console.error("Error al eliminar llamada:", err);
+        setWaiterCalls(prev => prev.filter(c => c.id !== callId));
+      }
+    }
   };
 
   // Payment Confirmation & Table Liberation in Firestore
@@ -363,6 +406,8 @@ export default function App() {
           paidAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           paymentMethod: method
         });
+        // Clear pending calls for this table
+        waiterCalls.filter(c => c.tableId === tableObj.id).forEach(c => attendWaiterCall(c.id));
         setCustomerModalOpen(false);
         setCashAmount('');
         showToast(`¡Pago con ${method} confirmado! Mesa #${tableObj.id} liberada. ¡Muchas gracias! ✨`);
@@ -371,6 +416,7 @@ export default function App() {
         showToast("Error al registrar pago", "error");
       }
     } else {
+      waiterCalls.filter(c => c.tableId === tableObj.id).forEach(c => attendWaiterCall(c.id));
       setCustomerModalOpen(false);
       setCashAmount('');
       showToast(`Pago procesado. ¡Muchas gracias por su preferencia! ✨`);
@@ -379,6 +425,9 @@ export default function App() {
 
   // Staff function to collect & liberate table immediately
   const liberateTable = async (tableId: number) => {
+    // Clear pending calls for this table
+    waiterCalls.filter(c => c.tableId === tableId).forEach(c => attendWaiterCall(c.id));
+
     const orderToPay = orders.find(
       o => o.tableId === tableId && 
       o.status !== 'pagado' && 
@@ -557,6 +606,11 @@ export default function App() {
                       {activeCount}
                     </span>
                   )}
+                  {tab.id === 'admin' && waiterCalls.length > 0 && (
+                    <span className="ml-1 px-1.5 min-w-[20px] h-5 bg-red-500 text-white rounded-full text-[10px] font-bold flex items-center justify-center animate-pulse">
+                      {waiterCalls.length}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -674,8 +728,13 @@ export default function App() {
                   if (menuSec) menuSec.scrollIntoView({ behavior: 'smooth' });
                 }}
                 onOpenBill={() => {
-                  setModalMode('bill');
-                  setCustomerModalOpen(true);
+                  const table = currentTableId !== null ? tables.find(t => t.id === Number(currentTableId)) : null;
+                  if (table) {
+                    requestBill(table);
+                  } else {
+                    setModalMode('bill');
+                    setCustomerModalOpen(true);
+                  }
                 }}
                 onCancelOrder={cancelOrder}
               />
@@ -785,6 +844,24 @@ export default function App() {
                           <span>{table.currentOrder.items.length} ítems</span>
                           <span>Hora: {table.currentOrder.time}</span>
                         </div>
+                      </div>
+                    )}
+
+                    {waiterCalls.some(c => c.tableId === table.id) && (
+                      <div className="mt-3 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs flex items-center justify-between gap-2 animate-pulse">
+                        <span className="flex items-center gap-1.5 font-bold">
+                          <Bell className="w-4 h-4 text-[#ff7a00]" />
+                          {waiterCalls.find(c => c.tableId === table.id)?.type === 'mozo' ? 'Mozo solicitado' : 'Cuenta solicitada'}
+                        </span>
+                        <button
+                          onClick={() => {
+                            const call = waiterCalls.find(c => c.tableId === table.id);
+                            if (call) attendWaiterCall(call.id);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-emerald-600 text-white text-[11px] font-bold cursor-pointer transition-colors"
+                        >
+                          Atender
+                        </button>
                       </div>
                     )}
                   </div>
@@ -925,23 +1002,33 @@ export default function App() {
                 <div className="space-y-6">
                   {/* Waiter Calls */}
                   <div className="bg-[#292524] border border-[#3a3632] rounded-[20px] p-6 space-y-4">
-                    <h3 className="text-lg font-serif font-bold text-[#f5efe6]">Llamadas Activas de Clientes</h3>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-serif font-bold text-[#f5efe6] flex items-center gap-2">
+                        <Bell className="w-5 h-5 text-[#ff7a00]" />
+                        <span>Llamadas Activas de Clientes</span>
+                      </h3>
+                      {waiterCalls.length > 0 && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-300 border border-red-500/30">
+                          {waiterCalls.length} pendientes
+                        </span>
+                      )}
+                    </div>
                     {waiterCalls.length === 0 ? (
                       <p className="text-sm text-[#a8a29e]">No hay llamadas pendientes.</p>
                     ) : (
                       <div className="space-y-3">
                         {waiterCalls.map((call) => (
-                          <div key={call.id} className="flex items-center justify-between bg-[#1c1917] p-4 rounded-xl border border-[#3a3632]">
+                          <div key={call.id} className="flex items-center justify-between bg-[#1c1917] p-4 rounded-xl border border-[#3a3632] shadow-sm">
                             <div className="flex items-center gap-3">
-                              {call.type === 'mozo' ? <Bell className="w-5 h-5 text-[#ff7a00]" /> : <FileText className="w-5 h-5 text-emerald-500" />}
+                              {call.type === 'mozo' ? <Bell className="w-5 h-5 text-[#ff7a00] animate-bounce" /> : <FileText className="w-5 h-5 text-emerald-400 animate-pulse" />}
                               <div>
                                 <p className="text-sm font-bold text-[#f5efe6]">{call.tableName}</p>
                                 <span className="text-xs text-[#a8a29e]">{call.type === 'mozo' ? 'Llamada de Mozo' : 'Solicitud de Cuenta'} • {call.time}</span>
                               </div>
                             </div>
                             <button 
-                              onClick={() => setWaiterCalls(prev => prev.filter(c => c.id !== call.id))} 
-                              className="px-3 py-1.5 rounded-lg bg-[#3a3632] hover:bg-emerald-600 text-xs font-bold text-white cursor-pointer"
+                              onClick={() => attendWaiterCall(call.id)} 
+                              className="px-3.5 py-1.5 rounded-lg bg-[#3a3632] hover:bg-emerald-600 text-xs font-bold text-white cursor-pointer transition-colors"
                             >
                               Atendido
                             </button>
@@ -1015,7 +1102,14 @@ export default function App() {
         cashAmount={cashAmount}
         setCashAmount={setCashAmount}
         onViewMenu={() => setActiveTab('menu')}
-        onSwitchToBill={() => setModalMode('bill')}
+        onSwitchToBill={() => {
+          const table = currentTableId !== null ? tables.find(t => t.id === Number(currentTableId)) : null;
+          if (table) {
+            requestBill(table);
+          } else {
+            setModalMode('bill');
+          }
+        }}
       />
 
       {/* Floating Mobile Cart Bar (Hides when Cart Modal is Open) */}
@@ -1035,6 +1129,7 @@ export default function App() {
         onTabChange={(tab) => setActiveTab(tab)}
         cart={cart}
         orders={orders}
+        waiterCallsCount={waiterCalls.length}
         isCartOpen={customerModalOpen}
         onOpenCart={() => {
           setModalMode('cart');
