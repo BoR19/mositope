@@ -76,7 +76,6 @@ export default function App() {
     setTimeout(() => setNotification(null), 3500);
   };
 
-  // Staff Sign Out Handler
   const handleLogout = async () => {
     try {
       if (user) {
@@ -87,6 +86,7 @@ export default function App() {
     }
     localStorage.removeItem('elchuro_staff_session');
     setStaffSession(null);
+    setActiveTab('menu');
     showToast('Sesión de personal cerrada.');
   };
 
