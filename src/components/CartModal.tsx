@@ -1,5 +1,9 @@
-import React, { useEffect } from 'react';
-import { X, ShoppingBag, Plus, Minus, Trash2, Send, CheckCircle2, Utensils, FileText, Sparkles, Layers } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  X, ShoppingBag, Plus, Minus, Trash2, Send, CheckCircle2, Utensils, 
+  FileText, Sparkles, DollarSign, QrCode, AlertTriangle, ShieldCheck, 
+  Lock, KeyRound, Bell, ArrowRight, Check
+} from 'lucide-react';
 import { CartItem, Table, Order } from '../types/index.ts';
 
 interface CartModalProps {
@@ -20,6 +24,10 @@ interface CartModalProps {
   setCashAmount: (val: string) => void;
   onViewMenu: () => void;
   onSwitchToBill?: () => void;
+  isStaffAuthenticated?: boolean;
+  staffName?: string;
+  onStaffLoginSuccess?: (session: any) => void;
+  onCallWaiterForBill?: () => void;
 }
 
 export const CartModal: React.FC<CartModalProps> = ({
@@ -40,8 +48,23 @@ export const CartModal: React.FC<CartModalProps> = ({
   setCashAmount,
   onViewMenu,
   onSwitchToBill,
+  isStaffAuthenticated = false,
+  staffName = 'Personal',
+  onStaffLoginSuccess,
+  onCallWaiterForBill,
 }) => {
-  // Close on Escape key
+  // Method tab for billing view ('EFECTIVO' | 'QR')
+  const [billMethod, setBillMethod] = useState<'EFECTIVO' | 'QR'>('EFECTIVO');
+  
+  // Rule 2: QR verification in mobile banking by staff
+  const [qrVerified, setQrVerified] = useState<boolean>(false);
+  
+  // Rule 3: Inline staff PIN login if waiter is on table/customer device
+  const [showInlinePin, setShowInlinePin] = useState<boolean>(false);
+  const [inlinePin, setInlinePin] = useState<string>('');
+  const [pinError, setPinError] = useState<string | null>(null);
+
+  // Close on Escape key & manage scroll lock
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -49,6 +72,11 @@ export const CartModal: React.FC<CartModalProps> = ({
     if (isOpen) {
       window.addEventListener('keydown', handleKeyDown);
       document.body.style.overflow = 'hidden';
+      // Reset verification state when modal opens
+      setQrVerified(false);
+      setShowInlinePin(false);
+      setInlinePin('');
+      setPinError(null);
     }
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
@@ -60,9 +88,47 @@ export const CartModal: React.FC<CartModalProps> = ({
 
   const currentTable = currentTableId !== null ? tables.find(t => t.id === Number(currentTableId)) || null : null;
   const isAdditionMode = Boolean(activeOrder && modalMode === 'cart');
-  const itemsToShow = modalMode === 'bill' ? (activeOrder?.items || []) : cart;
-  const totalToShow = modalMode === 'bill' ? (activeOrder?.total || 0) : cartTotal;
+  
+  // Safe order fallback
+  const effectiveOrder = activeOrder || (currentTable ? currentTable.currentOrder : null);
+  const itemsToShow = modalMode === 'bill' ? (effectiveOrder?.items || []) : cart;
+  const totalToShow = modalMode === 'bill' ? (effectiveOrder?.total || 0) : cartTotal;
   const totalItemsCount = cart.reduce((sum, item) => sum + item.qty, 0);
+
+  // =========================================================================
+  // 💰 REGLA 1: LÓGICA DE PAGO EN EFECTIVO (Cálculo y Validación Dinámica)
+  // =========================================================================
+  const cleanCashStr = cashAmount.trim();
+  const cashNum = cleanCashStr === '' ? 0 : parseFloat(cleanCashStr);
+  const hasEnteredCash = cleanCashStr !== '' && !isNaN(cashNum);
+  
+  // Comparaciones estrictas con el consumo total
+  const isUnderpaid = hasEnteredCash && cashNum < totalToShow;
+  const isPaidOrOver = hasEnteredCash && cashNum >= totalToShow;
+
+  const montoFaltante = isUnderpaid ? (totalToShow - cashNum).toFixed(2) : '0.00';
+  const montoVuelto = isPaidOrOver ? (cashNum - totalToShow).toFixed(2) : '0.00';
+
+  // Quick PIN submit inside modal
+  const handleInlinePinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = inlinePin.trim();
+    if (clean === '7777') {
+      const session = { name: 'Administrador', role: 'admin' as const, authType: 'pin' as const };
+      localStorage.setItem('elchuro_staff_session', JSON.stringify(session));
+      if (onStaffLoginSuccess) onStaffLoginSuccess(session);
+      setShowInlinePin(false);
+      setPinError(null);
+    } else if (clean === '1234') {
+      const session = { name: 'Personal de Cocina / Mozo', role: 'cocina' as const, authType: 'pin' as const };
+      localStorage.setItem('elchuro_staff_session', JSON.stringify(session));
+      if (onStaffLoginSuccess) onStaffLoginSuccess(session);
+      setShowInlinePin(false);
+      setPinError(null);
+    } else {
+      setPinError('PIN incorrecto. (Admin: 7777 | Mozo: 1234)');
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[1200] bg-black/80 backdrop-blur-sm flex justify-end animate-fadeIn">
@@ -70,12 +136,12 @@ export const CartModal: React.FC<CartModalProps> = ({
       <div className="absolute inset-0" onClick={onClose} />
 
       {/* Modal Container: fixed 100dvh for zero mobile overflow cut-off */}
-      <div className="relative w-full max-w-[500px] bg-[#1c1917] h-[100dvh] max-h-[100dvh] flex flex-col justify-between border-l border-[#3a3632] shadow-2xl z-10 overflow-hidden">
+      <div className="relative w-full max-w-[520px] bg-[#1c1917] h-[100dvh] max-h-[100dvh] flex flex-col justify-between border-l border-[#3a3632] shadow-2xl z-10 overflow-hidden">
         
         {/* Header (Always Visible) */}
         <div className="shrink-0 p-4 sm:p-5 border-b border-[#3a3632] flex items-center justify-between bg-[#292524]">
-          <div className="flex items-center gap-2.5">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
               modalMode === 'bill' 
                 ? 'bg-emerald-500/20 text-emerald-400' 
                 : isAdditionMode 
@@ -84,25 +150,25 @@ export const CartModal: React.FC<CartModalProps> = ({
             }`}>
               {modalMode === 'bill' ? <FileText className="w-5 h-5" /> : <ShoppingBag className="w-5 h-5" />}
             </div>
-            <div>
-              <h3 className="text-[17px] sm:text-[18px] font-serif font-bold text-[#f5efe6] leading-tight">
+            <div className="min-w-0">
+              <h3 className="text-[17px] sm:text-[18px] font-serif font-bold text-[#f5efe6] leading-tight truncate">
                 {modalMode === 'bill' 
                   ? 'Cuenta de la Mesa' 
                   : isAdditionMode 
                     ? 'Adición a la Comanda' 
                     : 'Tu Pedido en Carrito'}
               </h3>
-              <p className="text-[11px] text-[#a8a29e] flex items-center gap-1.5">
-                <span>{currentTable ? currentTable.name : 'Mesa no asignada'}</span>
+              <p className="text-[11px] text-[#a8a29e] flex items-center gap-1.5 truncate">
+                <span>{currentTable ? currentTable.name : (currentTableId ? `Mesa #${currentTableId}` : 'Mesa no asignada')}</span>
                 {modalMode === 'cart' && totalItemsCount > 0 && (
                   <>
                     <span>•</span>
                     <span className="text-[#ff7a00] font-semibold">{totalItemsCount} {totalItemsCount === 1 ? 'ítem' : 'ítems'}</span>
                   </>
                 )}
-                {isAdditionMode && (
-                  <span className="text-amber-400 font-bold bg-amber-500/10 px-1.5 rounded">
-                    Mesa con comanda activa
+                {modalMode === 'bill' && isStaffAuthenticated && (
+                  <span className="text-emerald-400 font-bold bg-emerald-500/15 px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3" /> {staffName}
                   </span>
                 )}
               </p>
@@ -110,8 +176,8 @@ export const CartModal: React.FC<CartModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl bg-[#1c1917] hover:bg-[#3a3632] text-[#a8a29e] hover:text-white transition-colors cursor-pointer"
-            aria-label="Cerrar Carrito"
+            className="p-2 rounded-xl bg-[#1c1917] hover:bg-[#3a3632] text-[#a8a29e] hover:text-white transition-colors cursor-pointer shrink-0"
+            aria-label="Cerrar"
           >
             <X className="w-5 h-5" />
           </button>
@@ -126,7 +192,7 @@ export const CartModal: React.FC<CartModalProps> = ({
             <span className="text-[#a8a29e] font-medium flex items-center gap-1.5">
               <span>Mesa:</span>
               {currentTableId === null && (
-                <span className="text-amber-400 font-bold text-[10px]">(Requerida para enviar)</span>
+                <span className="text-amber-400 font-bold text-[10px]">(Requerida para cobrar/pedir)</span>
               )}
             </span>
             <select
@@ -168,7 +234,7 @@ export const CartModal: React.FC<CartModalProps> = ({
               </p>
               <p className="text-xs text-[#a8a29e] max-w-xs mx-auto mb-6 leading-relaxed">
                 {modalMode === 'bill'
-                  ? 'Esta mesa no tiene comandas pendientes de pago.'
+                  ? 'Esta mesa no tiene comandas pendientes de pago en este momento.'
                   : activeOrder
                     ? 'Tu comanda actual ya está registrada. Agrega nuevos platos o bebidas desde el menú para adicionarlos a tu mesa.'
                     : 'Explora nuestro menú tradicional y a la leña para añadir tus platos favoritos.'}
@@ -194,132 +260,430 @@ export const CartModal: React.FC<CartModalProps> = ({
               </div>
             </div>
           ) : (
-            <div className="space-y-3">
-              {/* Items List */}
-              <div className="space-y-2.5">
-                {itemsToShow.map((item: any, index: number) => (
-                  <div
-                    key={item.id || index}
-                    className="flex items-center justify-between bg-[#292524] p-3.5 sm:p-4 rounded-[16px] border border-[#3a3632] gap-3"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-[13px] sm:text-[14px] font-bold text-[#f5efe6] truncate">
-                          {item.nombre}
-                        </h4>
-                        {item.isAddition && (
-                          <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded font-bold">
-                            Adición
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-[#ff7a00] font-extrabold">
-                          Bs. {(item.precioBs * item.qty).toFixed(2)}
-                        </span>
-                        <span className="text-[11px] text-[#a8a29e]">
-                          (Bs. {item.precioBs.toFixed(2)} c/u)
-                        </span>
-                      </div>
-                    </div>
-
-                    {modalMode === 'cart' ? (
-                      <div className="flex items-center gap-1.5 sm:gap-2 bg-[#1c1917] px-2 py-1.5 rounded-xl border border-[#3a3632] shrink-0">
-                        {item.qty === 1 ? (
-                          <button
-                            onClick={() => onRemoveItem(item.id)}
-                            className="p-1 text-red-400 hover:text-red-300 transition-colors cursor-pointer"
-                            title="Eliminar del carrito"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => onUpdateQty(item.id, -1)}
-                            className="p-1 text-[#a8a29e] hover:text-white transition-colors cursor-pointer"
-                          >
-                            <Minus className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        <span className="text-xs sm:text-sm font-bold w-5 text-center text-[#f5efe6]">
-                          {item.qty}
-                        </span>
-                        <button
-                          onClick={() => onUpdateQty(item.id, 1)}
-                          className="p-1 text-[#ff7a00] hover:text-[#ff8c1a] transition-colors cursor-pointer"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-sm font-bold text-[#a8a29e] bg-[#1c1917] px-2.5 py-1 rounded-lg border border-[#3a3632]">
-                        {item.qty}x
-                      </span>
-                    )}
+            <div className="space-y-4">
+              {/* Header de Cuenta de Mesa */}
+              {modalMode === 'bill' && (
+                <div className="bg-[#292524] p-3.5 sm:p-4 rounded-2xl border border-[#3a3632] flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-[#a8a29e] block">
+                      Consumo Total de la Cuenta
+                    </span>
+                    <span className="text-[13px] font-semibold text-[#f5efe6]">
+                      {currentTable ? currentTable.name : `Mesa #${currentTableId}`}
+                    </span>
                   </div>
-                ))}
+                  <div className="text-right">
+                    <span className="text-[22px] sm:text-[24px] font-black text-[#ff7a00] font-sans block leading-none">
+                      Bs. {totalToShow.toFixed(2)}
+                    </span>
+                    <span className="text-[10px] text-[#a8a29e]">
+                      {itemsToShow.length} {itemsToShow.length === 1 ? 'producto' : 'productos'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Items List */}
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#a8a29e] block">
+                  {modalMode === 'bill' ? 'Detalle de Platos y Bebidas consumidos:' : 'Productos en tu Carrito:'}
+                </span>
+                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                  {itemsToShow.map((item: any, index: number) => (
+                    <div
+                      key={item.id || index}
+                      className="flex items-center justify-between bg-[#292524] p-3 rounded-[14px] border border-[#3a3632] gap-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-[13px] font-bold text-[#f5efe6] truncate">
+                            {item.nombre}
+                          </h4>
+                          {item.isAddition && (
+                            <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded font-bold shrink-0">
+                              Adición
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-[#ff7a00] font-extrabold">
+                            Bs. {(item.precioBs * item.qty).toFixed(2)}
+                          </span>
+                          <span className="text-[11px] text-[#a8a29e]">
+                            ({item.qty}x Bs. {item.precioBs.toFixed(2)})
+                          </span>
+                        </div>
+                      </div>
+
+                      {modalMode === 'cart' ? (
+                        <div className="flex items-center gap-1.5 bg-[#1c1917] px-2 py-1 rounded-xl border border-[#3a3632] shrink-0">
+                          {item.qty === 1 ? (
+                            <button
+                              onClick={() => onRemoveItem(item.id)}
+                              className="p-1 text-red-400 hover:text-red-300 transition-colors cursor-pointer"
+                              title="Eliminar del carrito"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => onUpdateQty(item.id, -1)}
+                              className="p-1 text-[#a8a29e] hover:text-white transition-colors cursor-pointer"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <span className="text-xs font-bold w-4 text-center text-[#f5efe6]">
+                            {item.qty}
+                          </span>
+                          <button
+                            onClick={() => onUpdateQty(item.id, 1)}
+                            className="p-1 text-[#ff7a00] hover:text-[#ff8c1a] transition-colors cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-xs font-bold text-[#a8a29e] bg-[#1c1917] px-2.5 py-1 rounded-lg border border-[#3a3632] shrink-0">
+                          {item.qty}x
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              {/* Bill Details if mode is bill */}
+              {/* =========================================================================
+               * 💳 VISTA DE COBRO DE LA CUENTA (modalMode === 'bill')
+               * ========================================================================= */}
               {modalMode === 'bill' && (
-                <div className="pt-4 space-y-5 border-t border-[#3a3632]">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#ff7a00]">
-                    Seleccione Método de Pago
-                  </h4>
+                <div className="pt-3 space-y-4 border-t border-[#3a3632]">
+                  
+                  {/* CASO A: PERSONAL AUTORIZADO (PIN / ADMIN / MOZO) */}
+                  {isStaffAuthenticated ? (
+                    <div className="space-y-4">
+                      {/* Pestañas de Método de Cobro */}
+                      <div className="flex rounded-xl bg-[#292524] p-1 border border-[#3a3632]">
+                        <button
+                          type="button"
+                          onClick={() => setBillMethod('EFECTIVO')}
+                          className={`flex-1 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                            billMethod === 'EFECTIVO' 
+                              ? 'bg-emerald-600 text-white shadow-md' 
+                              : 'text-[#a8a29e] hover:text-white'
+                          }`}
+                        >
+                          <DollarSign className="w-3.5 h-3.5" />
+                          <span>Efectivo</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBillMethod('QR')}
+                          className={`flex-1 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                            billMethod === 'QR' 
+                              ? 'bg-emerald-600 text-white shadow-md' 
+                              : 'text-[#a8a29e] hover:text-white'
+                          }`}
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                          <span>QR Simple</span>
+                        </button>
+                      </div>
 
-                  {/* Pago con QR */}
-                  <div className="bg-[#292524] p-4 rounded-2xl border border-[#3a3632] space-y-3 text-center">
-                    <span className="text-xs font-bold text-[#f5efe6] block">Pago con QR Simple / Banco Sol</span>
-                    <div className="bg-white p-3 rounded-xl w-36 h-36 mx-auto flex items-center justify-center shadow">
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`PAGO_MESA_${currentTableId}_TOTAL_${totalToShow.toFixed(2)}`)}`}
-                        alt="QR Pago"
-                        className="w-full h-full object-contain"
-                      />
+                      {/* =========================================================================
+                       * 1. LÓGICA DE PAGO EN EFECTIVO (Cálculo y Validación):
+                       * - Toma el consumo total de la cuenta (ej: Bs. 314.00)
+                       * - Lee dinámicamente el valor ingresado en "Monto entregado en Bs."
+                       * - Si el monto es MENOR al total consumido:
+                       *   a) Texto centrado en rojo: "⚠️ Faltan Bs. [monto faltante]"
+                       *   b) Cambia borde del input a border-red-500
+                       *   c) Botón "Confirmar Pago en Efectivo" DESHABILITADO con estilo opaco, fondo gris/rojo oscuro y cursor no permitido.
+                       * - Si el monto es IGUAL o MAYOR al total consumido:
+                       *   a) Texto centrado en verde: "Cambio a devolver: Bs. [monto vuelto]"
+                       *   b) Cambia borde del input a border-emerald-500
+                       *   c) HABILITA automáticamente el botón "Confirmar Pago en Efectivo" en verde activo.
+                       * ========================================================================= */}
+                      {billMethod === 'EFECTIVO' && (
+                        <div className="bg-[#292524] p-4 rounded-2xl border border-[#3a3632] space-y-3.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-[#f5efe6] flex items-center gap-1.5">
+                              <DollarSign className="w-4 h-4 text-emerald-400" />
+                              Cobro en Efectivo
+                            </span>
+                            <span className="text-xs font-black text-[#ff7a00]">
+                              Total: Bs. {totalToShow.toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[11px] text-[#a8a29e] font-medium block">
+                              Monto entregado en Bs.:
+                            </label>
+                            <div className="relative">
+                              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#a8a29e]">
+                                Bs.
+                              </span>
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                placeholder="Monto entregado en Bs."
+                                value={cashAmount}
+                                onChange={(e) => setCashAmount(e.target.value)}
+                                className={`w-full bg-[#1c1917] rounded-xl pl-10 pr-4 py-2.5 text-sm text-[#f5efe6] font-bold focus:outline-none transition-colors border ${
+                                  isUnderpaid 
+                                    ? 'border-red-500 focus:border-red-500 text-red-200' 
+                                    : isPaidOrOver 
+                                      ? 'border-emerald-500 focus:border-emerald-500 text-emerald-200' 
+                                      : 'border-[#3a3632] focus:border-emerald-500'
+                                }`}
+                              />
+                            </div>
+
+                            {/* Accesos rápidos de efectivo */}
+                            <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                              <span className="text-[10px] text-[#78716c] mr-1">Rápido:</span>
+                              <button
+                                type="button"
+                                onClick={() => setCashAmount(totalToShow.toFixed(2))}
+                                className="px-2.5 py-1 rounded-lg bg-[#1c1917] hover:bg-[#3a3632] border border-[#3a3632] text-[11px] font-bold text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
+                              >
+                                Exacto (Bs. {totalToShow.toFixed(2)})
+                              </button>
+                              {[50, 100, 200, 500].filter(val => val >= totalToShow).slice(0, 3).map((val) => (
+                                <button
+                                  key={val}
+                                  type="button"
+                                  onClick={() => setCashAmount(val.toString())}
+                                  className="px-2.5 py-1 rounded-lg bg-[#1c1917] hover:bg-[#3a3632] border border-[#3a3632] text-[11px] font-semibold text-[#a8a29e] hover:text-white transition-colors cursor-pointer"
+                                >
+                                  Bs. {val}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Mensajes Dinámicos Centrados */}
+                          {isUnderpaid && (
+                            <div className="p-2.5 rounded-xl bg-red-950/40 border border-red-500/50 animate-fadeIn">
+                              <p className="text-red-500 font-bold text-center text-xs">
+                                ⚠️ Faltan Bs. {montoFaltante}
+                              </p>
+                            </div>
+                          )}
+
+                          {isPaidOrOver && (
+                            <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/50 animate-fadeIn">
+                              <p className="text-emerald-400 font-bold text-center text-xs">
+                                Cambio a devolver: Bs. {montoVuelto}
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Botón Confirmar Pago en Efectivo */}
+                          <button
+                            type="button"
+                            onClick={() => onPayment('EFECTIVO')}
+                            disabled={!isPaidOrOver}
+                            className={`w-full py-3 px-4 rounded-[14px] font-bold text-xs transition-all flex items-center justify-center gap-2 ${
+                              isPaidOrOver
+                                ? 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white shadow-lg shadow-emerald-950/40 cursor-pointer'
+                                : 'bg-stone-800 text-stone-500 border border-red-950/60 opacity-60 cursor-not-allowed shadow-none'
+                            }`}
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>Confirmar Pago en Efectivo</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {/* =========================================================================
+                       * 2. PAGO CON QR Y CONFIRMACIÓN:
+                       * - Botón de pago por QR indicando el monto a cobrar (Bs. 314.00)
+                       * - Requiere confirmación del personal tras verificar la transferencia en banca móvil
+                       * ========================================================================= */}
+                      {billMethod === 'QR' && (
+                        <div className="bg-[#292524] p-4 rounded-2xl border border-[#3a3632] space-y-3.5 text-center">
+                          <div className="flex items-center justify-between text-left">
+                            <span className="text-xs font-bold text-[#f5efe6] flex items-center gap-1.5">
+                              <QrCode className="w-4 h-4 text-emerald-400" />
+                              QR Simple / Banco Sol
+                            </span>
+                            <span className="text-xs font-black text-[#ff7a00]">
+                              Bs. {totalToShow.toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="bg-white p-3 rounded-xl w-36 h-36 mx-auto flex items-center justify-center shadow">
+                            <img
+                              src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`PAGO_MESA_${currentTableId}_TOTAL_${totalToShow.toFixed(2)}`)}`}
+                              alt="QR Pago"
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                          <p className="text-[11px] text-[#a8a29e]">
+                            El comensal escanea desde su app bancaria (Banco Sol, BNB, BCP, Banco Unión, Mercantil, etc.)
+                          </p>
+
+                          {/* Casilla obligatoria de verificación de transferencia en banca móvil */}
+                          <div className="bg-[#1c1917] p-3 rounded-xl border border-[#3a3632] text-left">
+                            <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={qrVerified}
+                                onChange={(e) => setQrVerified(e.target.checked)}
+                                className="mt-0.5 w-4 h-4 rounded border-[#3a3632] bg-[#292524] text-emerald-500 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-emerald-500 shrink-0"
+                              />
+                              <div className="text-xs min-w-0">
+                                <span className="font-bold text-[#f5efe6] block leading-tight">
+                                  Verificación en Banca Móvil
+                                </span>
+                                <span className="text-[11px] text-[#a8a29e] block mt-0.5 leading-relaxed">
+                                  He verificado en la app bancaria la acreditación de <strong className="text-emerald-400 font-bold">Bs. {totalToShow.toFixed(2)}</strong>.
+                                </span>
+                              </div>
+                            </label>
+                          </div>
+
+                          {/* Botón con el monto exacto a cobrar */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!qrVerified) return;
+                              onPayment('QR');
+                            }}
+                            disabled={!qrVerified}
+                            className={`w-full py-3 px-4 rounded-[14px] font-bold text-xs transition-all flex items-center justify-center gap-2 ${
+                              qrVerified
+                                ? 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white shadow-lg shadow-emerald-950/40 cursor-pointer'
+                                : 'bg-stone-800 text-stone-500 border border-[#3a3632] opacity-60 cursor-not-allowed shadow-none'
+                            }`}
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>Confirmar Pago con QR (Bs. {totalToShow.toFixed(2)})</span>
+                          </button>
+
+                          {!qrVerified && (
+                            <p className="text-[10px] text-amber-400 text-center flex items-center justify-center gap-1 font-medium">
+                              <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                              Verifica la transferencia en la app bancaria para habilitar la confirmación
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <p className="text-[11px] text-[#a8a29e]">
-                      Escanea desde cualquier app bancaria de Bolivia (Simple QR)
-                    </p>
-                    <button
-                      onClick={() => onPayment('QR')}
-                      className="w-full py-2.5 rounded-[12px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow cursor-pointer transition-colors"
-                    >
-                      Confirmar Pago con QR (Bs. {totalToShow.toFixed(2)})
-                    </button>
-                  </div>
+                  ) : (
+                    /* =========================================================================
+                     * 3. CONTROL DE SEGURIDAD Y VISTA DE COMENSAL:
+                     * - Si un usuario ingresa como comensal desde el QR de la mesa, NO DEBE VER
+                     *   el botón de liberación de mesa.
+                     * - Muestra el total, el QR para transferir y botón para llamar al mozo.
+                     * ========================================================================= */
+                    <div className="space-y-4">
+                      {/* Banner Informativo para Comensal */}
+                      <div className="bg-[#292524] p-4 rounded-2xl border border-[#3a3632] space-y-3 text-center">
+                        <div className="bg-white p-3 rounded-xl w-36 h-36 mx-auto flex items-center justify-center shadow-lg">
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`PAGO_MESA_${currentTableId}_TOTAL_${totalToShow.toFixed(2)}`)}`}
+                            alt="QR Simple Pago"
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-xs font-bold text-[#f5efe6] block">
+                            Escanea con tu aplicación de banca móvil
+                          </span>
+                          <span className="text-sm font-extrabold text-emerald-400 block">
+                            Monto a Pagar: Bs. {totalToShow.toFixed(2)}
+                          </span>
+                          <p className="text-[11px] text-[#a8a29e] max-w-xs mx-auto">
+                            Acepta Banco Sol, BNB, BCP, Banco Unión, Banco FIE, Banco Mercantil Santa Cruz y Simple QR.
+                          </p>
+                        </div>
+                      </div>
 
-                  {/* Pago en Efectivo */}
-                  <div className="bg-[#292524] p-4 rounded-2xl border border-[#3a3632] space-y-3">
-                    <span className="text-xs font-bold text-[#f5efe6] block text-center">
-                      Pago en Efectivo (con Mozo / Caja)
-                    </span>
-                    <input
-                      type="number"
-                      placeholder="Monto entregado en Bs."
-                      value={cashAmount}
-                      onChange={(e) => setCashAmount(e.target.value)}
-                      className="w-full bg-[#1c1917] border border-[#3a3632] rounded-xl px-4 py-2 text-sm text-[#f5efe6] focus:outline-none focus:border-emerald-500"
-                    />
-                    {cashAmount && Number(cashAmount) >= totalToShow && (
-                      <p className="text-emerald-400 font-bold text-center text-xs">
-                        Cambio a devolver: Bs. {(Number(cashAmount) - totalToShow).toFixed(2)}
-                      </p>
-                    )}
-                    <button
-                      onClick={() => onPayment('EFECTIVO')}
-                      disabled={!cashAmount || Number(cashAmount) < totalToShow}
-                      className="w-full py-2.5 rounded-[12px] bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs cursor-pointer transition-colors"
-                    >
-                      Confirmar Pago en Efectivo
-                    </button>
-                  </div>
+                      {/* Nota de Cobro Exclusivo por Personal */}
+                      <div className="p-3.5 rounded-xl bg-amber-950/30 border border-amber-600/30 text-amber-200/90 text-xs space-y-1.5">
+                        <div className="flex items-center gap-1.5 font-bold text-amber-300">
+                          <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>Instrucciones para Comensales</span>
+                        </div>
+                        <p className="text-[11px] text-[#d6d3d1] leading-relaxed">
+                          Puedes transferir con el código QR superior o pagar en efectivo con tu mozo.
+                          <strong> El personal del restaurante verificará el pago y liberará la mesa en el sistema.</strong>
+                        </p>
+                      </div>
+
+                      {/* Botón para solicitar atención del mozo para pagar */}
+                      {onCallWaiterForBill && (
+                        <button
+                          type="button"
+                          onClick={onCallWaiterForBill}
+                          className="w-full py-3.5 px-4 rounded-[14px] bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-transform cursor-pointer"
+                        >
+                          <Bell className="w-4 h-4" />
+                          <span>Llamar al Mozo para Pagar / Traer Cuenta</span>
+                        </button>
+                      )}
+
+                      {/* Acceso Rápido con PIN para Mozo o Cajero en la mesa */}
+                      <div className="pt-2 text-center">
+                        {!showInlinePin ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowInlinePin(true)}
+                            className="text-[11px] text-[#78716c] hover:text-[#a8a29e] flex items-center justify-center gap-1 mx-auto transition-colors cursor-pointer"
+                          >
+                            <Lock className="w-3 h-3" />
+                            <span>¿Eres mozo o personal del restaurante? Ingresar con PIN</span>
+                          </button>
+                        ) : (
+                          <form onSubmit={handleInlinePinSubmit} className="bg-[#1c1917] p-3 rounded-xl border border-[#3a3632] space-y-2 text-left animate-fadeIn">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-[#f5efe6] flex items-center gap-1">
+                                <KeyRound className="w-3.5 h-3.5 text-[#ff7a00]" /> PIN de Personal (Caja / Mozo)
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setShowInlinePin(false)}
+                                className="text-[11px] text-[#78716c] hover:text-white"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            <div className="flex gap-2">
+                              <input
+                                type="password"
+                                maxLength={6}
+                                placeholder="PIN (ej: 7777 o 1234)"
+                                value={inlinePin}
+                                onChange={(e) => setInlinePin(e.target.value)}
+                                className="flex-1 bg-[#292524] border border-[#3a3632] rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#ff7a00]"
+                                autoFocus
+                              />
+                              <button
+                                type="submit"
+                                className="px-3.5 py-1.5 bg-[#ff7a00] hover:bg-[#ff8c1a] text-white font-bold text-xs rounded-lg cursor-pointer"
+                              >
+                                Acceder
+                              </button>
+                            </div>
+                            {pinError && (
+                              <p className="text-[10px] text-red-400 font-medium">{pinError}</p>
+                            )}
+                          </form>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                 </div>
               )}
             </div>
           )}
         </div>
 
-        {/* Sticky Bottom Footer: GUARANTEED VISIBLE ON MOBILE */}
+        {/* Sticky Bottom Footer for Cart Ordering: GUARANTEED VISIBLE ON MOBILE */}
         {itemsToShow.length > 0 && modalMode === 'cart' && (
           <div className="shrink-0 p-4 sm:p-5 bg-[#292524] border-t border-[#3a3632] shadow-[0_-8px_25px_rgba(0,0,0,0.5)] space-y-3 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] sm:pb-5">
             {/* Total Row */}

@@ -535,8 +535,40 @@ export default function App() {
     }
   };
 
-  // Payment Confirmation & Table Liberation in Firestore
+  // Notificar al mozo para cobro de mesa desde la cuenta
+  const handleCallWaiterForBill = async () => {
+    if (currentTableId === null) {
+      showToast("Por favor selecciona tu mesa.", "error");
+      return;
+    }
+    const tableObj = tables.find(t => t.id === Number(currentTableId));
+    const tableName = tableObj ? tableObj.name : `Mesa #${currentTableId}`;
+    try {
+      await updateDoc(doc(db, 'mesas', String(currentTableId)), { status: 'por-pagar' });
+      const activeOrder = orders.find(o => o.tableId === currentTableId && o.status !== 'pagado' && o.status !== 'cancelado');
+      if (activeOrder) {
+        await updateDoc(doc(db, 'pedidos', activeOrder.id), { status: 'por-pagar' });
+      }
+      await addDoc(collection(db, 'llamadas'), {
+        tableId: currentTableId,
+        tableName: tableName,
+        type: 'cuenta',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        status: 'pending'
+      });
+      showToast(`🔔 Solicitud de cobro enviada al personal para ${tableName}.`);
+    } catch (e) {
+      console.error("Error al llamar al mozo para cuenta:", e);
+      showToast(`🔔 Solicitud de cobro enviada al personal.`);
+    }
+  };
+
+  // Payment Confirmation & Table Liberation in Firestore (Staff Only)
   const handlePayment = async (method: 'QR' | 'EFECTIVO') => {
+    if (!isStaffAuthenticated) {
+      showToast("Operación denegada. Solo el personal con PIN puede confirmar cobros y liberar la mesa.", "error");
+      return;
+    }
     if (currentTableId === null) {
       setCustomerModalOpen(false);
       showToast("Mesa no seleccionada.", "error");
@@ -554,32 +586,40 @@ export default function App() {
       o.status !== 'cancelado'
     );
 
-    if (activeOrder) {
-      try {
+    try {
+      if (activeOrder) {
         await updateDoc(doc(db, 'pedidos', activeOrder.id), {
           status: 'pagado',
           paidAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           paymentMethod: method
         });
-        // Clear pending calls for this table
-        waiterCalls.filter(c => c.tableId === tableObj.id).forEach(c => attendWaiterCall(c.id));
-        setCustomerModalOpen(false);
-        setCashAmount('');
-        showToast(`¡Pago con ${method} confirmado! Mesa #${tableObj.id} liberada. ¡Muchas gracias! ✨`);
-      } catch (e) {
-        console.error("Error al registrar pago:", e);
-        showToast("Error al registrar pago", "error");
       }
-    } else {
+      // Actualizar mesa en Firestore a libre
+      await updateDoc(doc(db, 'mesas', String(tableObj.id)), {
+        status: 'free',
+        currentOrder: null
+      });
+      // Limpiar llamadas de mozo de esta mesa
       waiterCalls.filter(c => c.tableId === tableObj.id).forEach(c => attendWaiterCall(c.id));
+      setTables(prev => prev.map(t => t.id === tableObj.id ? { ...t, status: 'free', currentOrder: null } : t));
       setCustomerModalOpen(false);
       setCashAmount('');
-      showToast(`Pago procesado. ¡Muchas gracias por su preferencia! ✨`);
+      showToast(`¡Pago con ${method} confirmado! Mesa #${tableObj.id} cobrada y liberada. ✨`);
+    } catch (e) {
+      console.error("Error al registrar pago y liberar mesa:", e);
+      setTables(prev => prev.map(t => t.id === tableObj.id ? { ...t, status: 'free', currentOrder: null } : t));
+      setCustomerModalOpen(false);
+      setCashAmount('');
+      showToast(`¡Pago con ${method} registrado! Mesa #${tableObj.id} liberada. ✨`);
     }
   };
 
   // Staff function to collect & liberate table immediately
   const liberateTable = async (tableId: number) => {
+    if (!isStaffAuthenticated) {
+      showToast("Acceso denegado. Se requiere autenticación de personal con PIN.", "error");
+      return;
+    }
     // Clear pending calls for this table
     waiterCalls.filter(c => c.tableId === tableId).forEach(c => attendWaiterCall(c.id));
 
@@ -589,21 +629,24 @@ export default function App() {
       o.status !== 'cancelado'
     );
 
-    if (orderToPay) {
-      try {
+    try {
+      if (orderToPay) {
         await updateDoc(doc(db, 'pedidos', orderToPay.id), {
           status: 'pagado',
           paidAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           paymentMethod: 'EFECTIVO'
         });
-        showToast(`Mesa #${tableId} cobrada y liberada con éxito.`);
-      } catch (e) {
-        console.error("Error al liberar mesa:", e);
-        showToast("Error al liberar mesa", "error");
       }
-    } else {
+      await updateDoc(doc(db, 'mesas', String(tableId)), {
+        status: 'free',
+        currentOrder: null
+      });
       setTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'free', currentOrder: null } : t));
-      showToast(`Mesa #${tableId} está libre.`);
+      showToast(`Mesa #${tableId} cobrada y liberada con éxito.`);
+    } catch (e) {
+      console.error("Error al liberar mesa:", e);
+      setTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'free', currentOrder: null } : t));
+      showToast(`Mesa #${tableId} liberada.`);
     }
   };
 
@@ -1107,21 +1150,30 @@ export default function App() {
                       <QrCode className="w-4 h-4" /> Ver / Imprimir QR
                     </button>
                     {table.status !== 'free' ? (
-                      <button
-                        onClick={() => liberateTable(table.id)}
-                        className="w-full py-2.5 px-3 rounded-[12px] bg-emerald-600 hover:bg-emerald-700 text-[13px] font-semibold text-white transition-colors flex items-center justify-center gap-2 cursor-pointer shadow"
-                      >
-                        <CheckCheck className="w-4 h-4" /> Cobrar y Liberar Mesa
-                      </button>
+                      isStaffAuthenticated ? (
+                        <button
+                          onClick={() => {
+                            setCurrentTableId(table.id);
+                            setModalMode('bill');
+                            setCashAmount('');
+                            setCustomerModalOpen(true);
+                          }}
+                          className="w-full py-2.5 px-3 rounded-[12px] bg-emerald-600 hover:bg-emerald-700 text-[13px] font-semibold text-white transition-colors flex items-center justify-center gap-2 cursor-pointer shadow"
+                        >
+                          <CheckCheck className="w-4 h-4" /> Cobrar y Liberar Mesa
+                        </button>
+                      ) : null
                     ) : (
-                      <button
-                        onClick={() => setTableToDelete(table)}
-                        className="w-full py-2 px-3 rounded-[12px] bg-[#1c1917] hover:bg-red-950/60 border border-[#3a3632] hover:border-red-500/40 text-[12px] font-semibold text-[#a8a29e] hover:text-red-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                        title="Eliminar mesa del restaurante"
-                      >
-                        <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                        <span>Eliminar Mesa</span>
-                      </button>
+                      isStaffAuthenticated ? (
+                        <button
+                          onClick={() => setTableToDelete(table)}
+                          className="w-full py-2 px-3 rounded-[12px] bg-[#1c1917] hover:bg-red-950/60 border border-[#3a3632] hover:border-red-500/40 text-[12px] font-semibold text-[#a8a29e] hover:text-red-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                          title="Eliminar mesa del restaurante"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                          <span>Eliminar Mesa</span>
+                        </button>
+                      ) : null
                     )}
                   </div>
                 </div>
@@ -1560,6 +1612,10 @@ export default function App() {
             setModalMode('bill');
           }
         }}
+        isStaffAuthenticated={isStaffAuthenticated}
+        staffName={user?.displayName || staffSession?.name || 'Personal'}
+        onStaffLoginSuccess={(session) => setStaffSession(session)}
+        onCallWaiterForBill={handleCallWaiterForBill}
       />
 
       {/* Floating Mobile Cart Bar (Hides when Cart Modal is Open) */}
