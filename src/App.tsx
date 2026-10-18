@@ -8,7 +8,7 @@ import { db, auth, googleProvider } from './firebase.ts';
 import { collection, onSnapshot, addDoc, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 
-import { MENU_CATEGORIAS, INITIAL_MENU, INITIAL_TABLES } from './data/menuData.ts';
+import { MENU_CATEGORIAS, INITIAL_MENU, INITIAL_TABLES, formatTableOptionLabel } from './data/menuData.ts';
 import { MenuItem, CartItem, Table, Order, OrderItem, WaiterCall, NotificationState } from './types/index.ts';
 import { ProductCard } from './components/ProductCard.tsx';
 import { CartModal } from './components/CartModal.tsx';
@@ -97,7 +97,19 @@ export default function App() {
     });
 
     const unsubscribeOrders = onSnapshot(collection(db, 'pedidos'), (snapshot) => {
-      const liveOrders = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Order));
+      const liveOrders = snapshot.docs.map(d => {
+        const data = d.data();
+        const rawItems = (data.items || []) as OrderItem[];
+        const items = rawItems.map((item, idx) => ({
+          ...item,
+          orderItemId: item.orderItemId || `ord-${d.id}-${item.id}-${item.isAddition ? 'add' : 'init'}-${idx}`
+        }));
+        return {
+          id: d.id,
+          ...data,
+          items
+        } as Order;
+      });
       setOrders(liveOrders);
 
       // Auto-update table occupied status based on active orders (until order is paid or cancelled)
@@ -127,8 +139,18 @@ export default function App() {
           }
         }
       } else {
-        // Cargamos todos los platos existentes en la nube:
-        setMenu(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as MenuItem)));
+        // Cargamos todos los platos existentes en la nube garantizando IDs únicos y estables:
+        const seenIds = new Set<string>();
+        const uniqueItems: MenuItem[] = [];
+        snapshot.docs.forEach(d => {
+          const data = d.data();
+          const stableId = d.id || data.id;
+          if (stableId && !seenIds.has(stableId)) {
+            seenIds.add(stableId);
+            uniqueItems.push({ ...data, id: stableId } as MenuItem);
+          }
+        });
+        setMenu(uniqueItems);
       }
     });
 
@@ -289,13 +311,16 @@ export default function App() {
     if (existingOrder) {
       // ADICIÓN: Merge seamlessly into existing order so kitchen comanda is unified without duplicate cards!
       try {
-        const additionItems: OrderItem[] = cart.map(item => ({
+        const additionTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const additionTimestamp = Date.now();
+        const additionItems: OrderItem[] = cart.map((item, idx) => ({
           id: item.id,
           nombre: item.nombre,
           precioBs: item.precioBs,
           qty: item.qty,
           categoria: item.categoria,
-          isAddition: true
+          isAddition: true,
+          orderItemId: `orditem-${item.id}-add-${additionTimestamp}-${idx}`
         }));
 
         const updatedItems = [...existingOrder.items, ...additionItems];
@@ -305,7 +330,7 @@ export default function App() {
           items: updatedItems,
           total: updatedTotal,
           hasAddition: true,
-          additionTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          additionTime: additionTimeStr
         });
 
         setCart([]);
@@ -317,20 +342,22 @@ export default function App() {
       }
     } else {
       // NUEVA COMANDA PARA MESA LIBRE
+      const orderTimestamp = Date.now();
       const newOrder = {
         tableId: tableObj.id,
         tableName: tableObj.name,
-        items: cart.map(item => ({
+        items: cart.map((item, idx) => ({
           id: item.id,
           nombre: item.nombre,
           precioBs: item.precioBs,
           qty: item.qty,
-          categoria: item.categoria
+          categoria: item.categoria,
+          orderItemId: `orditem-${item.id}-init-${orderTimestamp}-${idx}`
         })),
         total: Number(cartTotal.toFixed(2)),
         status: 'pendiente',
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        createdAt: Date.now()
+        createdAt: orderTimestamp
       };
 
       try {
@@ -464,9 +491,19 @@ export default function App() {
     }
   };
 
+  // Menú saneado con identificadores únicos y estables garantizados (sin duplicados)
+  const uniqueMenu = useMemo(() => {
+    const seen = new Set<string>();
+    return menu.filter(item => {
+      if (!item || !item.id || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }, [menu]);
+
   // Filtro inteligente para buscar platos y bebidas en el panel de administración
   const filteredAdminMenu = useMemo(() => {
-    return menu.filter(item => {
+    return uniqueMenu.filter(item => {
       const matchSearch = adminMenuSearch.trim() === '' || 
         item.nombre.toLowerCase().includes(adminMenuSearch.toLowerCase()) ||
         (item.descripcion && item.descripcion.toLowerCase().includes(adminMenuSearch.toLowerCase())) ||
@@ -474,7 +511,7 @@ export default function App() {
       const matchCat = adminMenuCategory === 'TODOS' || item.categoria === adminMenuCategory;
       return matchSearch && matchCat;
     });
-  }, [menu, adminMenuSearch, adminMenuCategory]);
+  }, [uniqueMenu, adminMenuSearch, adminMenuCategory]);
 
   const callWaiter = async (table: Table) => {
     const callData: WaiterCall = {
@@ -855,11 +892,11 @@ export default function App() {
   };
 
   // Filtered Menu
-  const categoriesWithAll = ['TODOS', ...MENU_CATEGORIAS];
+  const categoriesWithAll = useMemo(() => ['TODOS', ...MENU_CATEGORIAS], []);
   const filteredMenu = useMemo(() => {
-    if (selectedCategory === 'TODOS') return menu;
-    return menu.filter(item => item.categoria === selectedCategory);
-  }, [menu, selectedCategory]);
+    if (selectedCategory === 'TODOS') return uniqueMenu;
+    return uniqueMenu.filter(item => item.categoria === selectedCategory);
+  }, [uniqueMenu, selectedCategory]);
 
   return (
     <div className="min-h-screen bg-[#1c1917] text-[#f5efe6] font-sans antialiased selection:bg-[#ff7a00] selection:text-white overflow-x-hidden relative w-full">
@@ -998,8 +1035,8 @@ export default function App() {
                         -- Seleccionar Mesa --
                       </option>
                       {tables.map(t => (
-                        <option key={t.id} value={t.id} className="bg-[#1c1917] text-white">
-                          #{t.id} - {t.name}
+                        <option key={`table-option-${t.id}`} value={t.id} className="bg-[#1c1917] text-white">
+                          {formatTableOptionLabel(t)}
                         </option>
                       ))}
                     </select>
@@ -1061,7 +1098,7 @@ export default function App() {
             <div id="menu-list-section" className="flex items-center gap-2 overflow-x-auto w-full pb-2 no-scrollbar scroll-mt-24">
               {categoriesWithAll.map(category => (
                 <button
-                  key={category}
+                  key={`cat-pill-${category}`}
                   onClick={() => setSelectedCategory(category)}
                   className={`px-4 py-2 rounded-[14px] text-[13px] font-semibold whitespace-nowrap transition-all cursor-pointer ${
                     selectedCategory === category 
@@ -1078,10 +1115,10 @@ export default function App() {
             {selectedCategory === 'TODOS' ? (
               <div className="space-y-12">
                 {MENU_CATEGORIAS.map(cat => {
-                  const itemsInCat = menu.filter(item => item.categoria === cat);
+                  const itemsInCat = uniqueMenu.filter(item => item.categoria === cat);
                   if (itemsInCat.length === 0) return null;
                   return (
-                    <div key={cat} className="space-y-4">
+                    <div key={`category-group-${cat}`} className="space-y-4">
                       <div className="flex items-center gap-3 border-b border-[#3a3632] pb-3">
                         <div className="w-3.5 h-3.5 rounded-full bg-[#ff7a00]" />
                         <h3 className="text-xl font-serif font-bold text-[#f5efe6] tracking-tight">{cat}</h3>
@@ -1090,9 +1127,9 @@ export default function App() {
                         </span>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {itemsInCat.map((product, pIdx) => (
+                        {itemsInCat.map(product => (
                           <ProductCard
-                            key={`${product.id}-${pIdx}`}
+                            key={product.id}
                             product={product}
                             onAddToCart={addToCart}
                             cartQty={cart.find(c => c.id === product.id)?.qty || 0}
@@ -1105,9 +1142,9 @@ export default function App() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredMenu.map((product, pIdx) => (
+                {filteredMenu.map(product => (
                   <ProductCard
-                    key={`${product.id}-${pIdx}`}
+                    key={product.id}
                     product={product}
                     onAddToCart={addToCart}
                     cartQty={cart.find(c => c.id === product.id)?.qty || 0}
@@ -1161,7 +1198,7 @@ export default function App() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {tables.map(table => (
-                <div key={table.id} className="bg-[#292524] border border-[#3a3632] rounded-[20px] p-6 flex flex-col justify-between gap-6 shadow-md">
+                <div key={`table-card-${table.id}`} className="bg-[#292524] border border-[#3a3632] rounded-[20px] p-6 flex flex-col justify-between gap-6 shadow-md">
                   <div>
                     <div className="flex justify-between items-center">
                       <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#ff7a00]">
@@ -1278,7 +1315,7 @@ export default function App() {
                     {orders
                       .filter(o => o.status !== 'pagado' && o.status !== 'cancelado')
                       .map(order => (
-                      <div key={order.id} className="bg-[#292524] border border-[#3a3632] rounded-[20px] p-6 space-y-4 flex flex-col justify-between shadow-lg">
+                      <div key={`kitchen-order-${order.id}`} className="bg-[#292524] border border-[#3a3632] rounded-[20px] p-6 space-y-4 flex flex-col justify-between shadow-lg">
                         <div className="space-y-3">
                           <div className="flex justify-between items-center">
                             <span className="text-sm font-bold text-[#ff7a00]">{order.id}</span>
@@ -1298,8 +1335,8 @@ export default function App() {
                             <span className="text-xs font-extrabold text-[#ff7a00]">Bs. {order.total.toFixed(2)}</span>
                           </div>
                           <div className="border-t border-[#3a3632] pt-3 space-y-2">
-                            {order.items.map((item, i) => (
-                              <div key={i} className="flex justify-between items-center text-sm">
+                            {order.items.map((item) => (
+                              <div key={item.orderItemId || `kds-item-${order.id}-${item.id}`} className="flex justify-between items-center text-sm">
                                 <div className="flex items-center gap-2">
                                   <span className="text-[#f5efe6] font-medium">{item.qty}x {item.nombre}</span>
                                   {item.isAddition && (
@@ -1371,7 +1408,7 @@ export default function App() {
                     ) : (
                       <div className="space-y-3">
                         {waiterCalls.map((call) => (
-                          <div key={call.id} className="flex items-center justify-between bg-[#1c1917] p-4 rounded-xl border border-[#3a3632] shadow-sm">
+                          <div key={`call-${call.id}`} className="flex items-center justify-between bg-[#1c1917] p-4 rounded-xl border border-[#3a3632] shadow-sm">
                             <div className="flex items-center gap-3">
                               {call.type === 'mozo' ? <Bell className="w-5 h-5 text-[#ff7a00] animate-bounce" /> : <FileText className="w-5 h-5 text-emerald-400 animate-pulse" />}
                               <div>
@@ -1411,7 +1448,7 @@ export default function App() {
                             Inventario de Platos y Bebidas
                           </h3>
                           <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#ff7a00]/15 text-[#ff7a00] border border-[#ff7a00]/30">
-                            {menu.length} artículos
+                            {uniqueMenu.length} artículos
                           </span>
                         </div>
                         <p className="text-xs sm:text-sm text-[#a8a29e] mt-1">
@@ -1436,19 +1473,19 @@ export default function App() {
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       <div className="p-3.5 rounded-2xl bg-[#1c1917] border border-[#3a3632]">
                         <span className="text-[11px] text-[#a8a29e] uppercase font-bold tracking-wider">Total Ítems</span>
-                        <p className="text-xl font-black text-[#f5efe6] mt-0.5">{menu.length}</p>
+                        <p className="text-xl font-black text-[#f5efe6] mt-0.5">{uniqueMenu.length}</p>
                       </div>
                       <div className="p-3.5 rounded-2xl bg-[#1c1917] border border-[#3a3632]">
                         <span className="text-[11px] text-emerald-400 uppercase font-bold tracking-wider">Disponibles</span>
-                        <p className="text-xl font-black text-emerald-400 mt-0.5">{menu.filter(m => m.disponible).length}</p>
+                        <p className="text-xl font-black text-emerald-400 mt-0.5">{uniqueMenu.filter(m => m.disponible).length}</p>
                       </div>
                       <div className="p-3.5 rounded-2xl bg-[#1c1917] border border-[#3a3632]">
                         <span className="text-[11px] text-red-400 uppercase font-bold tracking-wider">Agotados</span>
-                        <p className="text-xl font-black text-red-400 mt-0.5">{menu.filter(m => !m.disponible).length}</p>
+                        <p className="text-xl font-black text-red-400 mt-0.5">{uniqueMenu.filter(m => !m.disponible).length}</p>
                       </div>
                       <div className="p-3.5 rounded-2xl bg-[#1c1917] border border-[#3a3632]">
                         <span className="text-[11px] text-amber-400 uppercase font-bold tracking-wider">Categorías</span>
-                        <p className="text-xl font-black text-amber-400 mt-0.5">{new Set(menu.map(m => m.categoria)).size}</p>
+                        <p className="text-xl font-black text-amber-400 mt-0.5">{new Set(uniqueMenu.map(m => m.categoria)).size}</p>
                       </div>
                     </div>
 
@@ -1483,18 +1520,18 @@ export default function App() {
                               : 'bg-[#1c1917] text-[#a8a29e] hover:text-white border border-[#3a3632]'
                           }`}
                         >
-                          Todos ({menu.length})
+                          Todos ({uniqueMenu.length})
                         </button>
                         {MENU_CATEGORIAS.map((cat) => {
-                          const count = menu.filter(m => m.categoria === cat).length;
+                          const count = uniqueMenu.filter(m => m.categoria === cat).length;
                           if (count === 0) return null;
                           return (
                             <button
-                              key={cat}
+                              key={`admin-cat-tab-${cat}`}
                               onClick={() => setAdminMenuCategory(cat)}
                               className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors cursor-pointer font-semibold ${
                                 adminMenuCategory === cat
-                                  ? 'bg-[#ff7a00] text-white font-bold'
+                                    ? 'bg-[#ff7a00] text-white font-bold'
                                   : 'bg-[#1c1917] text-[#a8a29e] hover:text-white border border-[#3a3632]'
                               }`}
                             >
@@ -1533,8 +1570,8 @@ export default function App() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[#3a3632] bg-[#292524]">
-                            {filteredAdminMenu.map((item, idx) => (
-                              <tr key={`${item.id}-${idx}`} className="hover:bg-[#1c1917]/50 transition-colors">
+                            {filteredAdminMenu.map((item) => (
+                              <tr key={item.id} className="hover:bg-[#1c1917]/50 transition-colors">
                                 {/* Foto y Nombre del Plato */}
                                 <td className="px-4 py-3">
                                   <div className="flex items-center gap-3">

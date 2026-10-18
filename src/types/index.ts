@@ -36,6 +36,7 @@ export interface OrderItem {
   qty: number;
   categoria?: string;
   isAddition?: boolean;
+  orderItemId?: string;
 }
 
 export interface Order {

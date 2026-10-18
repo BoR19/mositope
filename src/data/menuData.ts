@@ -878,3 +878,24 @@ export const INITIAL_TABLES: Table[] = [
   { id: 11, name: 'Mesa 11 - Salón Interior', seats: 4, status: 'free', currentOrder: null },
   { id: 12, name: 'Mesa 12 - Salón Interior', seats: 6, status: 'free', currentOrder: null },
 ];
+
+/**
+ * 🏷️ Formatea el texto de la mesa en los comboboxes/selectores de manera limpia,
+ * evitando duplicaciones como "Mesa #12 - Mesa 12 - Salón Interior".
+ */
+export const formatTableOptionLabel = (t: { id: number; name?: string }): string => {
+  if (!t) return '';
+  let name = (t.name || '').trim();
+  if (!name) return `Mesa #${t.id}`;
+
+  // Elimina repeticiones duplicadas accidentales como "Mesa #12 - Mesa 12" o "Mesa 12 - Mesa 12"
+  name = name.replace(/^mesa\s*#?\d+\s*[-–—]\s*(mesa\s*#?\d+)/i, '$1');
+
+  // Si ya comienza con "Mesa" (ej: "Mesa 12 - Salón Interior"), la mostramos directamente
+  if (/^mesa\b/i.test(name)) {
+    return name;
+  }
+
+  // Si sólo tiene el sector o nombre personalizado (ej: "Salón VIP"), agregamos "Mesa #X - "
+  return `Mesa #${t.id} - ${name}`;
+};

@@ -5,6 +5,7 @@ import {
   Lock, KeyRound, Bell, ArrowRight, Check
 } from 'lucide-react';
 import { CartItem, Table, Order } from '../types/index.ts';
+import { formatTableOptionLabel } from '../data/menuData.ts';
 
 interface CartModalProps {
   isOpen: boolean;
@@ -209,7 +210,7 @@ export const CartModal: React.FC<CartModalProps> = ({
               </option>
               {tables.map(t => (
                 <option key={t.id} value={t.id}>
-                  Mesa #{t.id} - {t.name}
+                  {formatTableOptionLabel(t)}
                 </option>
               ))}
             </select>
@@ -295,7 +296,7 @@ export const CartModal: React.FC<CartModalProps> = ({
                 <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                   {itemsToShow.map((item: any, index: number) => (
                     <div
-                      key={`${item.id || 'item'}-${item.isAddition ? 'add-' : ''}${index}`}
+                      key={item.orderItemId || (modalMode === 'cart' ? `cart-${item.id}` : `bill-${item.id}-${item.isAddition ? 'add' : 'base'}-${index}`)}
                       className="flex items-center justify-between bg-[#292524] p-3 rounded-[14px] border border-[#3a3632] gap-3"
                     >
                       <div className="min-w-0 flex-1">

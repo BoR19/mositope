@@ -190,7 +190,7 @@ export const ActiveOrderBanner: React.FC<ActiveOrderBannerProps> = ({
           </div>
           <div className="divide-y divide-[#292524] space-y-1">
             {order.items.map((item, idx) => (
-              <div key={idx} className="flex items-center justify-between py-1.5 text-xs">
+              <div key={item.orderItemId || `banner-item-${order.id}-${item.id}-${item.isAddition ? 'add' : 'init'}-${idx}`} className="flex items-center justify-between py-1.5 text-xs">
                 <div className="flex items-center gap-2">
                   <span className="font-extrabold text-[#ff7a00]">{item.qty}x</span>
                   <span className="text-[#f5efe6] font-medium">{item.nombre}</span>
