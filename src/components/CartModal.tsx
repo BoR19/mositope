@@ -59,6 +59,9 @@ export const CartModal: React.FC<CartModalProps> = ({
   // Rule 2: QR verification in mobile banking by staff
   const [qrVerified, setQrVerified] = useState<boolean>(false);
   
+  // Feedback visual temporal al llamar al mozo
+  const [waiterRequested, setWaiterRequested] = useState<boolean>(false);
+  
   // Rule 3: Inline staff PIN login if waiter is on table/customer device
   const [showInlinePin, setShowInlinePin] = useState<boolean>(false);
   const [inlinePin, setInlinePin] = useState<string>('');
@@ -74,6 +77,7 @@ export const CartModal: React.FC<CartModalProps> = ({
       document.body.style.overflow = 'hidden';
       // Reset verification state when modal opens
       setQrVerified(false);
+      setWaiterRequested(false);
       setShowInlinePin(false);
       setInlinePin('');
       setPinError(null);
@@ -291,7 +295,7 @@ export const CartModal: React.FC<CartModalProps> = ({
                 <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                   {itemsToShow.map((item: any, index: number) => (
                     <div
-                      key={item.id || index}
+                      key={`${item.id || 'item'}-${item.isAddition ? 'add-' : ''}${index}`}
                       className="flex items-center justify-between bg-[#292524] p-3 rounded-[14px] border border-[#3a3632] gap-3"
                     >
                       <div className="min-w-0 flex-1">
@@ -618,11 +622,29 @@ export const CartModal: React.FC<CartModalProps> = ({
                       {onCallWaiterForBill && (
                         <button
                           type="button"
-                          onClick={onCallWaiterForBill}
-                          className="w-full py-3.5 px-4 rounded-[14px] bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-transform cursor-pointer"
+                          onClick={() => {
+                            setWaiterRequested(true);
+                            onCallWaiterForBill();
+                            setTimeout(() => setWaiterRequested(false), 5000);
+                          }}
+                          disabled={waiterRequested}
+                          className={`w-full py-3.5 px-4 rounded-[14px] font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer ${
+                            waiterRequested 
+                              ? 'bg-emerald-600 text-white cursor-default' 
+                              : 'bg-amber-600 hover:bg-amber-700 active:scale-95 text-white'
+                          }`}
                         >
-                          <Bell className="w-4 h-4" />
-                          <span>Llamar al Mozo para Pagar / Traer Cuenta</span>
+                          {waiterRequested ? (
+                            <>
+                              <Check className="w-4 h-4 text-emerald-200" />
+                              <span>¡Mozo Notificado! En breve se acercará a tu mesa</span>
+                            </>
+                          ) : (
+                            <>
+                              <Bell className="w-4 h-4 animate-bounce" />
+                              <span>Llamar al Mozo para Pagar / Traer Cuenta</span>
+                            </>
+                          )}
                         </button>
                       )}
 

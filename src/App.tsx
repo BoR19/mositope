@@ -134,8 +134,21 @@ export default function App() {
 
     const unsubscribeCalls = onSnapshot(collection(db, 'llamadas'), (snapshot) => {
       const liveCalls = snapshot.docs
-        .map(d => ({ id: d.id, ...d.data() } as WaiterCall))
-        .filter(c => !c.status || c.status === 'pendiente')
+        .map(d => {
+          const data = d.data();
+          const rawStatus = (data.status || '').toLowerCase();
+          const isPending = !rawStatus || rawStatus === 'pendiente' || rawStatus === 'pending';
+          return {
+            id: d.id,
+            tableId: Number(data.tableId),
+            tableName: data.tableName || `Mesa #${data.tableId}`,
+            type: (data.type === 'mozo' ? 'mozo' : 'cuenta') as 'mozo' | 'cuenta',
+            time: data.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            createdAt: typeof data.createdAt === 'number' ? data.createdAt : Date.now(),
+            status: isPending ? ('pendiente' as const) : ('atendido' as const)
+          } as WaiterCall;
+        })
+        .filter(c => c.status === 'pendiente')
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       setWaiterCalls(liveCalls);
     }, (error) => {
@@ -464,40 +477,68 @@ export default function App() {
   }, [menu, adminMenuSearch, adminMenuCategory]);
 
   const callWaiter = async (table: Table) => {
-    const callData = {
+    const callData: WaiterCall = {
+      id: `CALL-${Date.now()}`,
       tableId: table.id,
       tableName: table.name,
-      type: 'mozo' as const,
+      type: 'mozo',
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       createdAt: Date.now(),
-      status: 'pendiente' as const
+      status: 'pendiente'
     };
 
+    setWaiterCalls(prev => {
+      const exists = prev.some(c => c.tableId === table.id && c.type === 'mozo' && c.status === 'pendiente');
+      if (exists) return prev;
+      return [callData, ...prev];
+    });
+
     try {
-      await addDoc(collection(db, 'llamadas'), callData);
+      const docRef = await addDoc(collection(db, 'llamadas'), {
+        tableId: callData.tableId,
+        tableName: callData.tableName,
+        type: callData.type,
+        time: callData.time,
+        createdAt: callData.createdAt,
+        status: 'pendiente'
+      });
+      setWaiterCalls(prev => prev.map(c => c.id === callData.id ? { ...c, id: docRef.id } : c));
       showToast(`Llamada de mozo enviada para ${table.name}. ¡Un mozo viene en camino! 🔔`);
     } catch (e) {
       console.error("Error al registrar llamada de mozo en Firestore:", e);
-      setWaiterCalls(prev => [{ id: `CALL-${Date.now()}`, ...callData }, ...prev]);
       showToast(`Llamada de mozo enviada para ${table.name}. ¡Un mozo viene en camino! 🔔`);
     }
   };
 
   const requestBill = async (table: Table) => {
-    const callData = {
+    const callData: WaiterCall = {
+      id: `CALL-${Date.now()}`,
       tableId: table.id,
       tableName: table.name,
-      type: 'cuenta' as const,
+      type: 'cuenta',
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       createdAt: Date.now(),
-      status: 'pendiente' as const
+      status: 'pendiente'
     };
 
+    setWaiterCalls(prev => {
+      const exists = prev.some(c => c.tableId === table.id && c.type === 'cuenta' && c.status === 'pendiente');
+      if (exists) return prev;
+      return [callData, ...prev];
+    });
+
     try {
-      await addDoc(collection(db, 'llamadas'), callData);
+      const docRef = await addDoc(collection(db, 'llamadas'), {
+        tableId: callData.tableId,
+        tableName: callData.tableName,
+        type: callData.type,
+        time: callData.time,
+        createdAt: callData.createdAt,
+        status: 'pendiente'
+      });
+      setWaiterCalls(prev => prev.map(c => c.id === callData.id ? { ...c, id: docRef.id } : c));
     } catch (e) {
       console.error("Error al registrar solicitud de cuenta en Firestore:", e);
-      setWaiterCalls(prev => [{ id: `CALL-${Date.now()}`, ...callData }, ...prev]);
     }
 
     // Update order status to 'por-pagar' in Firestore if active order exists
@@ -541,25 +582,52 @@ export default function App() {
       showToast("Por favor selecciona tu mesa.", "error");
       return;
     }
-    const tableObj = tables.find(t => t.id === Number(currentTableId));
-    const tableName = tableObj ? tableObj.name : `Mesa #${currentTableId}`;
+    const tableIdNum = Number(currentTableId);
+    const tableObj = tables.find(t => t.id === tableIdNum);
+    const tableName = tableObj ? tableObj.name : `Mesa #${tableIdNum}`;
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timestamp = Date.now();
+
+    const callData: WaiterCall = {
+      id: `CALL-${timestamp}`,
+      tableId: tableIdNum,
+      tableName: tableName,
+      type: 'cuenta',
+      time: nowTime,
+      createdAt: timestamp,
+      status: 'pendiente'
+    };
+
+    // Actualización inmediata en el estado local (optimista) para reflejo instantáneo en Admin
+    setWaiterCalls(prev => {
+      const alreadyListed = prev.some(c => c.tableId === tableIdNum && c.type === 'cuenta' && c.status === 'pendiente');
+      if (alreadyListed) return prev;
+      return [callData, ...prev];
+    });
+
+    // Actualizar mesa a 'por-pagar' localmente
+    setTables(prev => prev.map(t => t.id === tableIdNum ? { ...t, status: 'por-pagar' } : t));
+
     try {
-      await updateDoc(doc(db, 'mesas', String(currentTableId)), { status: 'por-pagar' });
-      const activeOrder = orders.find(o => o.tableId === currentTableId && o.status !== 'pagado' && o.status !== 'cancelado');
+      await updateDoc(doc(db, 'mesas', String(tableIdNum)), { status: 'por-pagar' });
+      const activeOrder = orders.find(o => o.tableId === tableIdNum && o.status !== 'pagado' && o.status !== 'cancelado');
       if (activeOrder) {
         await updateDoc(doc(db, 'pedidos', activeOrder.id), { status: 'por-pagar' });
       }
-      await addDoc(collection(db, 'llamadas'), {
-        tableId: currentTableId,
+      const docRef = await addDoc(collection(db, 'llamadas'), {
+        tableId: tableIdNum,
         tableName: tableName,
         type: 'cuenta',
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        status: 'pending'
+        time: nowTime,
+        createdAt: timestamp,
+        status: 'pendiente'
       });
+      // Sincronizar ID generado por Firestore con el registro local
+      setWaiterCalls(prev => prev.map(c => c.id === callData.id ? { ...c, id: docRef.id } : c));
       showToast(`🔔 Solicitud de cobro enviada al personal para ${tableName}.`);
     } catch (e) {
-      console.error("Error al llamar al mozo para cuenta:", e);
-      showToast(`🔔 Solicitud de cobro enviada al personal.`);
+      console.error("Error al llamar al mozo para cuenta en Firestore:", e);
+      showToast(`🔔 Solicitud de cobro registrada para ${tableName}.`);
     }
   };
 
@@ -1022,9 +1090,9 @@ export default function App() {
                         </span>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {itemsInCat.map(product => (
+                        {itemsInCat.map((product, pIdx) => (
                           <ProductCard
-                            key={product.id}
+                            key={`${product.id}-${pIdx}`}
                             product={product}
                             onAddToCart={addToCart}
                             cartQty={cart.find(c => c.id === product.id)?.qty || 0}
@@ -1037,9 +1105,9 @@ export default function App() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredMenu.map(product => (
+                {filteredMenu.map((product, pIdx) => (
                   <ProductCard
-                    key={product.id}
+                    key={`${product.id}-${pIdx}`}
                     product={product}
                     onAddToCart={addToCart}
                     cartQty={cart.find(c => c.id === product.id)?.qty || 0}
@@ -1465,8 +1533,8 @@ export default function App() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[#3a3632] bg-[#292524]">
-                            {filteredAdminMenu.map((item) => (
-                              <tr key={item.id} className="hover:bg-[#1c1917]/50 transition-colors">
+                            {filteredAdminMenu.map((item, idx) => (
+                              <tr key={`${item.id}-${idx}`} className="hover:bg-[#1c1917]/50 transition-colors">
                                 {/* Foto y Nombre del Plato */}
                                 <td className="px-4 py-3">
                                   <div className="flex items-center gap-3">
