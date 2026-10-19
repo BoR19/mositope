@@ -1033,12 +1033,12 @@ export default function App() {
             })}
           </nav>
 
-          {/* Header Cart Button - Always visible, never cut off */}
+          {/* Header Cart & Personal Action Buttons */}
           <div className="flex items-center gap-2 shrink-0">
-            {isStaffAuthenticated && (
+            {isStaffAuthenticated ? (
               <button 
                 onClick={handleLogout}
-                className="flex items-center gap-1.5 px-3 py-1.5 sm:py-2 rounded-xl bg-[#292524] border border-[#3a3632] hover:border-red-500/40 text-xs text-[#a8a29e] hover:text-white transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-[#292524] border border-[#3a3632] hover:border-red-500/40 text-xs text-[#a8a29e] hover:text-white transition-colors cursor-pointer"
                 title="Cerrar sesión de personal"
               >
                 <LogOut className="w-3.5 h-3.5 text-[#ff7a00]" />
@@ -1046,6 +1046,15 @@ export default function App() {
                   {user?.displayName || staffSession?.name || 'Personal'}
                 </span>
                 <span className="sm:hidden text-[11px] font-semibold">Salir</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setActiveTab('tables')}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-[#292524] hover:bg-[#3a3632] border border-[#3a3632] hover:border-[#ff7a00]/50 text-xs text-[#a8a29e] hover:text-[#f5efe6] transition-all cursor-pointer active:scale-95"
+                title="Acceso para Mozos, Cocina y Administración (PIN)"
+              >
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                <span className="font-semibold text-[11px] sm:text-xs">Personal</span>
               </button>
             )}
             <button
