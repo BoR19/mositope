@@ -97,12 +97,12 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
 
     if (cleanPin === '1234') {
       const session: StaffSession = {
-        name: 'Personal de Cocina',
+        name: 'Mozo / Cocina',
         role: 'cocina',
         authType: 'pin'
       };
       localStorage.setItem('elchuro_staff_session', JSON.stringify(session));
-      showToast('¡Acceso concedido a Cocina! 🍲');
+      showToast('¡Acceso concedido a Mesas y Cocina! 🍽️');
       onSuccess(session);
     } else if (cleanPin === '7777') {
       const session: StaffSession = {
@@ -114,7 +114,7 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
       showToast('¡Acceso concedido como Administrador! ⚡');
       onSuccess(session);
     } else {
-      showToast('PIN incorrecto. Usa 1234 para Cocina o 7777 para Admin.', 'error');
+      showToast('PIN incorrecto. Usa 1234 para Mozo/Cocina o 7777 para Admin.', 'error');
     }
   };
 
@@ -122,12 +122,12 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
     setPin(quickPin);
     if (quickPin === '1234') {
       const session: StaffSession = {
-        name: 'Personal de Cocina',
+        name: 'Mozo / Cocina',
         role: 'cocina',
         authType: 'pin'
       };
       localStorage.setItem('elchuro_staff_session', JSON.stringify(session));
-      showToast('¡Acceso concedido a Cocina! 🍲');
+      showToast('¡Acceso concedido a Mesas y Cocina! 🍽️');
       onSuccess(session);
     } else if (quickPin === '7777') {
       const session: StaffSession = {
@@ -229,10 +229,10 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
                   className="p-2.5 rounded-xl bg-[#1c1917] hover:bg-[#3a3632] border border-[#3a3632] text-left transition-colors cursor-pointer group"
                 >
                   <div className="text-[11px] font-bold text-[#f5efe6] group-hover:text-[#ff7a00] flex items-center justify-between">
-                    <span>Cocina y Mesas</span>
+                    <span>Mozo y Cocina</span>
                     <span className="font-mono text-[10px] bg-[#292524] px-1.5 py-0.5 rounded text-[#a8a29e]">1234</span>
                   </div>
-                  <span className="text-[10px] text-[#78716c]">KDS, fogones y mesas</span>
+                  <span className="text-[10px] text-[#78716c]">Mesas, KDS y comandas</span>
                 </button>
 
                 <button
@@ -399,7 +399,7 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
                   <Sparkles className="w-4 h-4 text-emerald-400" /> ¿Necesitas entrar ya mismo?
                 </span>
                 <p className="text-[11px] text-emerald-300/90 mt-1">
-                  No necesitas esperar a configurar Firebase: puedes entrar de inmediato usando el <strong>PIN de Personal</strong> (<code className="font-bold text-white">1234</code> para Cocina o <code className="font-bold text-white">7777</code> para Admin).
+                  No necesitas esperar a configurar Firebase: puedes entrar de inmediato usando el <strong>PIN de Personal</strong> (<code className="font-bold text-white">1234</code> para Mozo y Cocina o <code className="font-bold text-white">7777</code> para Admin).
                 </p>
               </div>
             </div>

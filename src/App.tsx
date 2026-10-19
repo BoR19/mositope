@@ -32,6 +32,7 @@ export default function App() {
     }
   });
   const isStaffAuthenticated = Boolean(user || staffSession);
+  const isAdminAuthenticated = Boolean(user || staffSession?.role === 'admin');
   const [activeTab, setActiveTab] = useState<string>('menu'); 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -952,7 +953,7 @@ export default function App() {
                 >
                   <Icon className="w-4 h-4" />
                   <span>{tab.label}</span>
-                  {tab.isStaff && !isStaffAuthenticated && (
+                  {((tab.isStaff && !isStaffAuthenticated) || (tab.id === 'admin' && !isAdminAuthenticated)) && (
                     <Lock className="w-3 h-3 text-[#78716c]" />
                   )}
                   {tab.id === 'kitchen' && activeCount > 0 && (
@@ -1156,17 +1157,17 @@ export default function App() {
         )}
 
         {/* Staff Protected Views: Mesas, Cocina KDS y Administración */}
-        {((activeTab === 'tables' || activeTab === 'admin') && (!isStaffAuthenticated || (staffSession?.role === 'cocina' && !user))) ? (
+        {(activeTab === 'admin' && (!isStaffAuthenticated || !isAdminAuthenticated)) ? (
           <StaffLoginView
             onSuccess={(session) => setStaffSession(session)}
             showToast={showToast}
-            requiredRole="Gestión de Mesas y Admin (PIN Administrador: 7777)"
+            requiredRole="Panel de Administración (PIN Administrador: 7777)"
           />
-        ) : ((activeTab === 'kitchen') && !isStaffAuthenticated) ? (
+        ) : ((activeTab === 'tables' || activeTab === 'kitchen') && !isStaffAuthenticated) ? (
           <StaffLoginView
             onSuccess={(session) => setStaffSession(session)}
             showToast={showToast}
-            requiredRole="Cocina KDS (PIN Cocina: 1234 o Admin: 7777)"
+            requiredRole={activeTab === 'tables' ? "Gestión de Mesas (PIN Mozo: 1234 o Admin: 7777)" : "Cocina KDS (PIN Cocina: 1234 o Admin: 7777)"}
           />
         ) : (
           <div className="animate-fadeIn">
@@ -1743,6 +1744,7 @@ export default function App() {
         waiterCallsCount={waiterCalls.length}
         isCartOpen={customerModalOpen}
         isStaffAuthenticated={isStaffAuthenticated}
+        isAdminAuthenticated={isAdminAuthenticated}
         onOpenCart={() => {
           setModalMode('cart');
           setCustomerModalOpen(true);

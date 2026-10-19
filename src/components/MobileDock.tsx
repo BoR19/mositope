@@ -11,6 +11,7 @@ interface MobileDockProps {
   onOpenCart: () => void;
   isCartOpen: boolean;
   isStaffAuthenticated?: boolean;
+  isAdminAuthenticated?: boolean;
 }
 
 export const MobileDock: React.FC<MobileDockProps> = ({
@@ -22,6 +23,7 @@ export const MobileDock: React.FC<MobileDockProps> = ({
   onOpenCart,
   isCartOpen,
   isStaffAuthenticated = false,
+  isAdminAuthenticated = false,
 }) => {
   const totalCartCount = cart.reduce((s, i) => s + i.qty, 0);
   const activeOrdersCount = orders.filter(
@@ -100,7 +102,7 @@ export const MobileDock: React.FC<MobileDockProps> = ({
                 />
                 
                 {/* Candado informativo si aplica */}
-                {tab.isStaff && !isStaffAuthenticated && (
+                {((tab.isStaff && !isStaffAuthenticated) || (tab.id === 'admin' && !isAdminAuthenticated)) && (
                   <span className="absolute -top-1.5 -left-1.5 p-0.5 rounded-full bg-[#292524] text-stone-400 border border-[#3a3632]">
                     <Lock className="w-2.5 h-2.5 text-stone-400" />
                   </span>
