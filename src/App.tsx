@@ -2,14 +2,15 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Utensils, QrCode, ShoppingBag, Clock, Sparkles, AlertCircle, 
   ChefHat, Layers, Award, Bell, FileText, CheckCheck, LogIn, LogOut, Lock,
-  Plus, Trash2, Pencil, Search, DollarSign, Image as ImageIcon, SlidersHorizontal
+  Plus, Trash2, Pencil, Search, DollarSign, Image as ImageIcon, SlidersHorizontal,
+  Building2
 } from 'lucide-react';
 import { db, auth, googleProvider } from './firebase.ts';
 import { collection, onSnapshot, addDoc, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 
 import { MENU_CATEGORIAS, INITIAL_MENU, INITIAL_TABLES, formatTableOptionLabel } from './data/menuData.ts';
-import { MenuItem, CartItem, Table, Order, OrderItem, WaiterCall, NotificationState } from './types/index.ts';
+import { MenuItem, CartItem, Table, Order, OrderItem, WaiterCall, NotificationState, RestaurantProfile } from './types/index.ts';
 import { ProductCard } from './components/ProductCard.tsx';
 import { CartModal } from './components/CartModal.tsx';
 import { FloatingCartBar } from './components/FloatingCartBar.tsx';
@@ -19,6 +20,7 @@ import { ActiveOrderBanner } from './components/ActiveOrderBanner.tsx';
 import { StaffLoginView, StaffSession } from './components/StaffLoginView.tsx';
 import { AddTableModal, DeleteTableModal } from './components/TableModals.tsx';
 import { AddEditDishModal, QuickPriceModal, DeleteDishModal } from './components/DishModals.tsx';
+import { RestaurantProfileAdmin } from './components/RestaurantProfileAdmin.tsx';
 
 export default function App() {
   // Authentication & Core Data States
@@ -70,6 +72,18 @@ export default function App() {
   const [dishToQuickPrice, setDishToQuickPrice] = useState<MenuItem | null>(null);
   const [adminMenuSearch, setAdminMenuSearch] = useState<string>('');
   const [adminMenuCategory, setAdminMenuCategory] = useState<string>('TODOS');
+
+  // Estados para Perfil del Restaurante e Identidad de Marca:
+  const [restaurantProfile, setRestaurantProfile] = useState<RestaurantProfile>({
+    nombre: 'El Churo Mosito',
+    slogan: 'GASTRONOMÍA DE ALTURA • TARIJA',
+    telefono: '+591 71234567',
+    logoUrl: '',
+    colorPrimario: '#ff7a00',
+    colorSecundario: '#10b981',
+    modoFondo: 'dark-zinc',
+  });
+  const [adminSubTab, setAdminSubTab] = useState<'inventario' | 'perfil'>('inventario');
 
   // Show Toast Helper
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -218,12 +232,31 @@ export default function App() {
       console.warn("Mesas snapshot listener error:", error);
     });
 
+    const unsubscribeProfile = onSnapshot(doc(db, 'configuracion', 'perfil'), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setRestaurantProfile({
+          nombre: data.nombre || 'El Churo Mosito',
+          slogan: data.slogan || 'GASTRONOMÍA DE ALTURA • TARIJA',
+          telefono: data.telefono || '+591 71234567',
+          logoUrl: data.logoUrl || '',
+          colorPrimario: data.colorPrimario || '#ff7a00',
+          colorSecundario: data.colorSecundario || '#10b981',
+          modoFondo: data.modoFondo || 'dark-zinc',
+          updatedAt: data.updatedAt,
+        });
+      }
+    }, (error) => {
+      console.warn("Perfil snapshot listener error:", error);
+    });
+
     return () => {
       unsubscribeAuth();
       unsubscribeMenu();
       unsubscribeOrders();
       unsubscribeCalls();
       unsubscribeTables();
+      unsubscribeProfile();
     };
   }, []);
 
@@ -899,8 +932,20 @@ export default function App() {
     return uniqueMenu.filter(item => item.categoria === selectedCategory);
   }, [uniqueMenu, selectedCategory]);
 
+  const backgroundModeClass = useMemo(() => {
+    switch (restaurantProfile.modoFondo) {
+      case 'dark-pure':
+        return 'bg-[#000000]';
+      case 'dark-warm':
+        return 'bg-[#17100b]';
+      case 'dark-zinc':
+      default:
+        return 'bg-[#1c1917]';
+    }
+  }, [restaurantProfile.modoFondo]);
+
   return (
-    <div className="min-h-screen bg-[#1c1917] text-[#f5efe6] font-sans antialiased selection:bg-[#ff7a00] selection:text-white overflow-x-hidden relative w-full">
+    <div className={`min-h-screen ${backgroundModeClass} text-[#f5efe6] font-sans antialiased selection:bg-[#ff7a00] selection:text-white overflow-x-hidden relative w-full transition-colors duration-300`}>
       
       {/* Toast Notification */}
       {notification && (
@@ -919,15 +964,32 @@ export default function App() {
         <div className="max-w-[1280px] mx-auto px-3 sm:px-6 h-[68px] sm:h-[72px] flex items-center justify-between gap-3">
           {/* Logo & Title */}
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-[14px] bg-gradient-to-tr from-[#ff7a00] to-amber-500 flex items-center justify-center shadow-[0_8px_30px_rgba(255,122,0,0.4)] shrink-0">
-              <Utensils className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+            <div 
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-[14px] flex items-center justify-center shrink-0 overflow-hidden shadow-lg transition-all"
+              style={{
+                backgroundColor: restaurantProfile.colorPrimario || '#ff7a00',
+                boxShadow: `0 8px 30px ${(restaurantProfile.colorPrimario || '#ff7a00')}40`
+              }}
+            >
+              {restaurantProfile.logoUrl ? (
+                <img 
+                  src={restaurantProfile.logoUrl} 
+                  alt={restaurantProfile.nombre} 
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                <Utensils className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+              )}
             </div>
             <div className="min-w-0">
               <h1 className="text-[16px] sm:text-[20px] font-bold tracking-tight text-[#f5efe6] font-serif leading-tight truncate">
-                El Churo Mosito
+                {restaurantProfile.nombre || 'El Churo Mosito'}
               </h1>
               <p className="text-[10px] sm:text-[11px] text-[#a8a29e] tracking-[0.06em] uppercase font-medium truncate">
-                Gastronomía de Altura • Tarija
+                {restaurantProfile.slogan || 'Gastronomía de Altura • Tarija'}
               </p>
             </div>
           </div>
@@ -1386,9 +1448,46 @@ export default function App() {
             {/* Admin View */}
             {activeTab === 'admin' && (
               <div className="space-y-8 animate-fadeIn">
-                <h2 className="text-[24px] sm:text-[28px] font-serif font-extrabold tracking-tight text-[#f5efe6]">
-                  Panel de Administración y Menú
-                </h2>
+                {/* Cabecera Principal del Panel Admin con Pestañas de Navegación */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#3a3632] pb-6">
+                  <div>
+                    <h2 className="text-[24px] sm:text-[28px] font-serif font-extrabold tracking-tight text-[#f5efe6] flex items-center gap-3">
+                      <span>Panel de Administración</span>
+                    </h2>
+                    <p className="text-xs sm:text-sm text-[#a8a29e] mt-1">
+                      Gestiona el inventario de platos, atiende llamadas de clientes y configura la identidad de marca del restaurante.
+                    </p>
+                  </div>
+
+                  {/* Selector de Módulos del Panel Admin */}
+                  <div className="flex items-center p-1.5 rounded-2xl bg-[#292524] border border-[#3a3632] self-start md:self-auto shrink-0 shadow-md">
+                    <button
+                      type="button"
+                      onClick={() => setAdminSubTab('inventario')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                        adminSubTab === 'inventario'
+                          ? 'bg-[#ff7a00] text-white shadow-lg'
+                          : 'text-[#a8a29e] hover:text-[#f5efe6]'
+                      }`}
+                    >
+                      <Utensils className="w-4 h-4" />
+                      <span>Inventario ({uniqueMenu.length})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAdminSubTab('perfil')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                        adminSubTab === 'perfil'
+                          ? 'bg-[#ff7a00] text-white shadow-lg'
+                          : 'text-[#a8a29e] hover:text-[#f5efe6]'
+                      }`}
+                    >
+                      <Building2 className="w-4 h-4" />
+                      <span>Perfil e Identidad de Marca</span>
+                    </button>
+                  </div>
+                </div>
                 
                 <div className="space-y-6">
                   {/* Waiter Calls */}
@@ -1440,7 +1539,8 @@ export default function App() {
                    * 4. 🗑️ Botón "Eliminar": Para quitar un plato que ya no se va a vender.
                    * 5. 🔍 Buscador y Filtros: Para encontrar cualquier comida o bebida rápidamente.
                    * ========================================================================= */}
-                  <div className="bg-[#292524] border border-[#3a3632] rounded-[24px] p-5 sm:p-7 space-y-6 shadow-xl">
+                  {adminSubTab === 'inventario' && (
+                    <div className="bg-[#292524] border border-[#3a3632] rounded-[24px] p-5 sm:p-7 space-y-6 shadow-xl animate-fadeIn">
                     {/* Cabecera del Inventario con Título y Botón Principal */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#3a3632] pb-5">
                       <div>
@@ -1685,8 +1785,18 @@ export default function App() {
                       </div>
                     )}
                   </div>
-                </div>
+                )}
+
+                {/* SUBTAB 2: Perfil del Restaurante e Identidad de Marca */}
+                {adminSubTab === 'perfil' && (
+                  <RestaurantProfileAdmin
+                    currentProfile={restaurantProfile}
+                    onProfileUpdated={(updated) => setRestaurantProfile(updated)}
+                    showNotification={(msg, type) => showToast(msg, type)}
+                  />
+                )}
               </div>
+            </div>
             )}
           </div>
         )}

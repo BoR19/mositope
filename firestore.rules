@@ -31,5 +31,11 @@ service cloud.firestore {
       allow update: if true;
       allow delete: if true;
     }
+
+    // Colección Configuración: Perfil del Restaurante e Identidad de Marca
+    match /configuracion/{docId} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }

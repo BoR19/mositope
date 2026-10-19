@@ -68,3 +68,14 @@ export interface NotificationState {
   message: string;
   type: 'success' | 'error' | 'info';
 }
+
+export interface RestaurantProfile {
+  nombre: string;
+  slogan: string;
+  telefono: string;
+  logoUrl: string;
+  colorPrimario: string;
+  colorSecundario: string;
+  modoFondo: string;
+  updatedAt?: string;
+}

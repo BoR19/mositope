@@ -52,6 +52,20 @@
         "status": { "type": "string" }
       },
       "required": ["id", "name", "seats"]
+    },
+    "Configuracion": {
+      "title": "Configuracion",
+      "description": "Perfil del restaurante, identidad de marca, colores y logo.",
+      "type": "object",
+      "properties": {
+        "nombre": { "type": "string" },
+        "slogan": { "type": "string" },
+        "telefono": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "colorPrimario": { "type": "string" },
+        "colorSecundario": { "type": "string" },
+        "modoFondo": { "type": "string" }
+      }
     }
   },
   "firestore": {
@@ -70,6 +84,10 @@
     "/mesas/{mesaId}": {
       "schema": "Mesa",
       "description": "Colección de mesas del restaurante."
+    },
+    "/configuracion/{docId}": {
+      "schema": "Configuracion",
+      "description": "Configuración del restaurante e identidad de marca."
     }
   }
 }
